@@ -1,0 +1,39 @@
+{
+  "name": "eigen-recorder",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "icons": "node scripts/generate-icons.mjs",
+    "spm:setup": "sh scripts/setup-spm.sh",
+    "cap:sync": "npm run build && npx cap sync ios && node scripts/restore-package-swift.mjs",
+    "cap:open": "npx cap open ios",
+    "cap:run": "npm run build && npx cap sync ios && node scripts/restore-package-swift.mjs && npx cap run ios",
+    "cap:dev": "CAPACITOR_DEV=1 npx cap sync ios && node scripts/restore-package-swift.mjs && npx cap open ios",
+    "dev:live": "npm run dev -- --host 0.0.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.3.4",
+    "@sveltejs/adapter-static": "^3.0.4",
+    "@sveltejs/kit": "^2.5.0",
+    "@sveltejs/vite-plugin-svelte": "^3.1.0",
+    "sharp": "^0.34.5",
+    "svelte": "^4.2.18",
+    "svelte-check": "^3.8.0",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.5",
+    "vite": "^5.3.0",
+    "vite-plugin-pwa": "^0.20.0"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/geolocation": "^8.2.0",
+    "@capacitor/ios": "^8.3.4",
+    "idb": "^8.0.0"
+  }
+}

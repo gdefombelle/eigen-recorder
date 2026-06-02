@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="96" fill="#0a0a0a"/>
+  <!-- Outer diamond — 6% padding each side (30px) -->
+  <polygon points="256,30 482,256 256,482 30,256" stroke="#9ad1ff" stroke-width="18"/>
+  <!-- Inner diamond — 22% padding each side (112px) -->
+  <polygon points="256,112 400,256 256,400 112,256" stroke="#9ad1ff" stroke-width="11" opacity=".65"/>
+  <!-- Cross lines: outer edge → inner vertex, gap for dot -->
+  <line x1="30"  y1="256" x2="112" y2="256" stroke="#9ad1ff" stroke-width="11" opacity=".55"/>
+  <line x1="400" y1="256" x2="482" y2="256" stroke="#9ad1ff" stroke-width="11" opacity=".55"/>
+  <line x1="256" y1="30"  x2="256" y2="112" stroke="#9ad1ff" stroke-width="11" opacity=".55"/>
+  <line x1="256" y1="400" x2="256" y2="482" stroke="#9ad1ff" stroke-width="11" opacity=".55"/>
+  <!-- REC dot — rouge -->
+  <circle cx="256" cy="256" r="44" fill="#e5484d"/>
+</svg>
