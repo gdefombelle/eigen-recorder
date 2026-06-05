@@ -15,5 +15,19 @@
 
 <style>
   main { flex: 1; display: flex; flex-direction: column; background: var(--ev-black); }
-  .page { flex: 1; display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; width: 100%; }
+  .page {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    max-width: 480px;
+    margin: 0 auto;
+    width: 100%;
+    position: relative; /* needed for absolute-centered brand */
+  }
+  .content {
+    padding: 0 var(--sp-4) var(--sp-8);
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
 </style>

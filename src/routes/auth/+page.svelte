@@ -345,7 +345,7 @@
   }
   .auth-field input:focus  { border-color: var(--ev-blue); }
   .auth-field input:disabled { opacity: 0.5; }
-  .auth-field input::placeholder { color: rgba(255,255,255,0.25); }
+  .auth-field input::placeholder { color: rgba(255,255,255,0.55); }
 
   .auth-forgot {
     align-self: flex-end;

@@ -5,8 +5,9 @@
 
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  import type { KnowledgeSessionType, CreateSessionParams } from '$lib/recorder/types';
+  import type { KnowledgeSessionType, CreateSessionParams, RecordableKnowledgeSession } from '$lib/recorder/types';
   import { SESSION_TYPE_LABELS } from '$lib/recorder/types';
+  import { apiGetRecordableSessions } from '$lib/auth/api';
   import { getCurrentPosition, formatCoords } from '$lib/recorder/geolocation';
   import { langStore, t } from '$lib/i18n/index';
   import { isAuthenticated } from '$lib/auth/auth';
@@ -170,30 +171,44 @@
     });
   });
 
-  // ── Planned meetings (EigenVertex backend — mock) ─────────────
-  let showMeetingPicker = false;
-  let meetingSearch     = '';
-  let plannedMeetings: { id: string; title: string; time: string; participants: string[] }[] = [];
-  let meetingsLoading   = false;
+  // ── Planned meetings (EigenVertex backend) ────────────────────
+  let showMeetingPicker    = false;
+  let recordableSessions: RecordableKnowledgeSession[] = [];
+  let meetingsLoading      = false;
+  let sessionsError        = '';
+  let selectedSessionId:   string | null = null;
 
-  async function loadPlannedMeetings() {
+  async function loadRecordableSessions() {
     if (!isAuthenticated()) return;
     meetingsLoading = true;
-    // TODO: replace with real EigenVertex API call
-    // const res = await request('/sessions/planned?q=' + meetingSearch);
-    // plannedMeetings = res.items;
-    await new Promise(r => setTimeout(r, 600)); // simulate latency
-    plannedMeetings = []; // empty until backend connected
+    sessionsError   = '';
+    try {
+      recordableSessions = await apiGetRecordableSessions();
+    } catch {
+      sessionsError      = 'Could not load planned sessions.';
+      recordableSessions = [];
+    }
     meetingsLoading = false;
   }
 
-  function applyPlannedMeeting(m: typeof plannedMeetings[0]) {
-    title            = m.title;
-    participantsRaw  = m.participants.join('\n');
+  function applyPlannedMeeting(s: RecordableKnowledgeSession) {
+    selectedSessionId = s.id;
+    title             = s.title;
+    session_type      = s.session_type;
+    subject           = s.subject ?? '';
+    agenda            = s.agenda ?? '';
+    if (s.participants?.length) participantsRaw = s.participants.join('\n');
+    if (s.location_label && !location_label)   location_label = s.location_label;
     showMeetingPicker = false;
   }
 
-  $: if (showMeetingPicker) loadPlannedMeetings();
+  function clearSession() {
+    selectedSessionId = null;
+    title             = '';
+    subject           = '';
+    agenda            = '';
+    participantsRaw   = '';
+  }
 
   // ── STT (Web Speech API) ─────────────────────────────────────
   type FieldName = 'title' | 'subject' | 'agenda' | 'participants';
@@ -202,6 +217,7 @@
 
   onMount(() => {
     sttSupported = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+    loadRecordableSessions();
   });
 
   function startSTT(field: FieldName) {
@@ -266,12 +282,13 @@
     const now  = new Date();
     const time = now.toLocaleTimeString($langStore === 'fr' ? 'fr-FR' : 'en-US', { hour: '2-digit', minute: '2-digit' });
     dispatch('submit', {
-      title:          $langStore === 'fr' ? `Note ${time}` : `Note ${time}`,
-      session_type:   'free_recording',
-      subject:        '',
-      agenda:         '',
-      participants:   [],
-      location_label: location_label.trim() || null,
+      title:                $langStore === 'fr' ? `Note ${time}` : `Note ${time}`,
+      session_type:         'free_recording',
+      subject:              '',
+      agenda:               '',
+      participants:         [],
+      location_label:       location_label.trim() || null,
+      knowledge_session_id: null,
     });
   }
 
@@ -279,12 +296,13 @@
   function submit() {
     if (!title.trim()) return;
     dispatch('submit', {
-      title:          title.trim(),
+      title:                title.trim(),
       session_type,
-      subject:        subject.trim(),
-      agenda:         agenda.trim(),
-      participants:   participantsRaw.split('\n').map(p => p.trim()).filter(Boolean),
-      location_label: location_label.trim() || null,
+      subject:              subject.trim(),
+      agenda:               agenda.trim(),
+      participants:         participantsRaw.split('\n').map(p => p.trim()).filter(Boolean),
+      location_label:       location_label.trim() || null,
+      knowledge_session_id: selectedSessionId,
     });
   }
 </script>
@@ -301,7 +319,7 @@
     <span class="quick-rec-arrow">▶</span>
   </button>
 
-  <div class="or-divider"><span>{$langStore === 'fr' ? 'ou préparer la session' : 'or prepare session'}</span></div>
+  <div class="or-divider"><span>{$langStore === 'fr' ? '— ou choisir / préparer une session —' : '— or pick or prepare a session —'}</span></div>
 
   <!-- ── Location with autocomplete ── -->
   <div class="form-field">
@@ -369,30 +387,63 @@
       <button
         type="button"
         class="planned-toggle"
+        class:is-selected={selectedSessionId !== null}
         on:click={() => showMeetingPicker = !showMeetingPicker}
       >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" style="flex-shrink:0">
           <rect x="1" y="2" width="12" height="11" rx="1.5"/>
           <path d="M4 1v2M10 1v2M1 6h12"/>
         </svg>
-        {showMeetingPicker ? 'Hide planned meetings' : 'Pick a planned meeting'}
-        <span class="toggle-arrow">{showMeetingPicker ? '▲' : '▼'}</span>
+
+        {#if selectedSessionId}
+          <span class="planned-toggle-label">
+            {recordableSessions.find(s => s.id === selectedSessionId)?.title ?? 'Session selected'}
+          </span>
+          <button
+            type="button"
+            class="clear-session-btn"
+            title="Clear selection"
+            on:click|stopPropagation={clearSession}
+          >✕</button>
+        {:else}
+          <span class="planned-toggle-label">Pick a planned meeting</span>
+          {#if meetingsLoading}
+            <span class="spinner-xs" style="margin-left:auto"></span>
+          {:else}
+            <span class="toggle-arrow">{showMeetingPicker ? '▲' : '▼'}</span>
+          {/if}
+        {/if}
       </button>
 
       {#if showMeetingPicker}
         <div class="meeting-picker animate-fade-in">
           {#if meetingsLoading}
             <div class="picker-empty"><span class="spinner-xs"></span> Loading…</div>
-          {:else if plannedMeetings.length === 0}
+          {:else if sessionsError}
+            <div class="picker-empty picker-error">{sessionsError}</div>
+          {:else if recordableSessions.length === 0}
             <div class="picker-empty">
-              No planned meetings found.<br>
-              <span class="picker-hint">Connect to EigenVertex to see your schedule.</span>
+              No planned sessions found.<br>
+              <span class="picker-hint">Schedule sessions in EigenVertex to see them here.</span>
             </div>
           {:else}
-            {#each plannedMeetings as m}
-              <button type="button" class="meeting-item" on:click={() => applyPlannedMeeting(m)}>
-                <div class="mi-title">{m.title}</div>
-                <div class="mi-time">{m.time} · {m.participants.length} participants</div>
+            {#each recordableSessions as s (s.id)}
+              <button
+                type="button"
+                class="meeting-item"
+                class:active={s.id === selectedSessionId}
+                on:click={() => applyPlannedMeeting(s)}
+              >
+                <div class="mi-header">
+                  <span class="mi-title">{s.title}</span>
+                  <div class="mi-badges">
+                    {#if s.is_live}<span class="badge badge-live">LIVE</span>{/if}
+                    {#if s.can_resume_recording}<span class="badge badge-resume">Resume</span>{/if}
+                  </div>
+                </div>
+                <div class="mi-meta">
+                  {SESSION_TYPE_LABELS[s.session_type] ?? s.session_type}{s.workspace_name ? ' · ' + s.workspace_name : ''}
+                </div>
               </button>
             {/each}
           {/if}
@@ -523,43 +574,46 @@
     display: flex;
     align-items: center;
     gap: var(--sp-3);
-    padding: 14px 16px;
-    background: linear-gradient(135deg, rgba(229,72,77,0.12), rgba(229,72,77,0.06));
-    border: 1px solid rgba(229,72,77,0.35);
+    padding: 16px 18px;
+    background: linear-gradient(135deg, rgba(59,130,246,0.14), rgba(59,130,246,0.06));
+    border: 1px solid rgba(154,209,255,0.35);
     border-radius: var(--radius-lg);
     cursor: pointer;
     text-align: left;
     width: 100%;
     font-family: var(--font-sans);
-    transition: background 120ms, border-color 120ms;
+    transition: background 120ms, border-color 120ms, box-shadow 120ms;
     -webkit-tap-highlight-color: transparent;
   }
   .quick-rec-btn:hover:not(:disabled) {
-    background: rgba(229,72,77,0.18);
-    border-color: var(--ev-danger);
+    background: rgba(59,130,246,0.22);
+    border-color: var(--blue-bright);
+    box-shadow: 0 0 20px rgba(154,209,255,0.12);
   }
+  .quick-rec-btn:active:not(:disabled) { transform: scale(0.99); }
   .quick-rec-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  .quick-rec-icon { font-size: 1.4rem; flex-shrink: 0; }
-  .quick-rec-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-  .quick-rec-title { font-size: 0.92rem; font-weight: 700; color: var(--ev-danger); }
-  .quick-rec-sub   { font-size: 0.72rem; color: var(--ev-text-dim); line-height: 1.4; }
-  .quick-rec-arrow { font-size: 0.85rem; color: var(--ev-danger); flex-shrink: 0; }
+  .quick-rec-icon { font-size: 1.5rem; flex-shrink: 0; }
+  .quick-rec-text { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .quick-rec-title { font-size: 0.95rem; font-weight: 700; color: var(--blue-bright); }
+  .quick-rec-sub   { font-size: 0.82rem; color: rgba(255,255,255,0.65); line-height: 1.4; }
+  .quick-rec-arrow { font-size: 0.85rem; color: var(--blue-bright); flex-shrink: 0; opacity: 0.7; }
 
   .or-divider {
     display: flex;
     align-items: center;
     gap: var(--sp-3);
-    color: rgba(255,255,255,0.25);
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
+    color: var(--ev-orange);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
   }
   .or-divider::before, .or-divider::after {
     content: '';
     flex: 1;
     height: 1px;
-    background: var(--ev-border);
+    background: rgba(245,158,11,0.3);
   }
 
   /* ── Geo row ── */
@@ -654,7 +708,28 @@
     text-align: left;
   }
   .planned-toggle:hover { border-color: var(--ev-blue); color: var(--ev-text); }
-  .toggle-arrow { margin-left: auto; font-size: 0.65rem; }
+  .planned-toggle.is-selected {
+    border-color: var(--ev-blue);
+    color: var(--ev-text);
+    background: var(--ev-blue-bg);
+  }
+  .planned-toggle-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toggle-arrow { margin-left: auto; font-size: 0.65rem; flex-shrink: 0; }
+
+  .clear-session-btn {
+    margin-left: auto;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--ev-text-dim);
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 2px 4px;
+    border-radius: var(--radius-sm);
+    line-height: 1;
+    transition: color 120ms, background 120ms;
+  }
+  .clear-session-btn:hover { color: var(--ev-text); background: rgba(255,255,255,0.08); }
 
   .meeting-picker {
     background: var(--ev-card);
@@ -672,11 +747,13 @@
     gap: 4px;
     align-items: center;
   }
-  .picker-hint { font-size: 0.72rem; color: rgba(255,255,255,0.3); }
+  .picker-hint  { font-size: 0.72rem; color: rgba(255,255,255,0.5); }
+  .picker-error { color: var(--ev-danger); }
+
   .meeting-item {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
     padding: 10px 14px;
     border-bottom: 1px solid var(--ev-border);
     background: none;
@@ -689,9 +766,29 @@
     transition: background 120ms;
   }
   .meeting-item:last-child { border-bottom: none; }
-  .meeting-item:hover { background: rgba(255,255,255,0.04); }
-  .mi-title { font-size: 0.88rem; font-weight: 500; }
-  .mi-time  { font-size: 0.72rem; color: var(--ev-text-dim); }
+  .meeting-item:hover  { background: rgba(255,255,255,0.04); }
+  .meeting-item.active { background: var(--ev-blue-bg); }
+
+  .mi-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .mi-title { font-size: 0.88rem; font-weight: 500; flex: 1; }
+  .mi-meta  { font-size: 0.72rem; color: var(--ev-text-dim); }
+  .mi-badges { display: flex; gap: 4px; flex-shrink: 0; }
+
+  .badge {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 2px 5px;
+    border-radius: 3px;
+    line-height: 1.4;
+  }
+  .badge-live   { background: rgba(229,72,77,0.2); color: var(--ev-danger); }
+  .badge-resume { background: var(--ev-blue-bg); color: var(--ev-blue); }
 
   /* ── Input + mic ── */
   .input-wrap {

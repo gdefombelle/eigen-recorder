@@ -32,10 +32,8 @@ export class AudioRecorder {
   private mediaRecorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
-  private analyserL: AnalyserNode | null = null;
-  private analyserR: AnalyserNode | null = null;
-  private levelDataL: Uint8Array<ArrayBuffer> | null = null;
-  private levelDataR: Uint8Array<ArrayBuffer> | null = null;
+  private analyser: AnalyserNode | null = null;
+  private levelData: Uint8Array<ArrayBuffer> | null = null;
 
   private sessionStartEpoch = 0;
   private pausedAccumMs     = 0;
@@ -116,6 +114,9 @@ export class AudioRecorder {
 
   pause(): void {
     if (this.mediaRecorder?.state === 'recording') {
+      // Flush buffered audio since last timeslice so the partial chunk is saved.
+      // ondataavailable fires asynchronously before the 'pause' event — safe.
+      this.mediaRecorder.requestData();
       this.mediaRecorder.pause();
       this.pauseEpoch = Date.now();
     }
@@ -162,28 +163,22 @@ export class AudioRecorder {
     return Date.now() - this.sessionStartEpoch - nowPaused;
   }
 
-  // Returns [left/bottom, right/top] — 0..1 each.
-  // Uses time-domain peak amplitude — far more reactive than frequency bins for voice.
-  getMicLevels(): [number, number] {
-    const readPeak = (a: AnalyserNode | null, d: Uint8Array<ArrayBuffer> | null): number => {
-      if (!a || !d) return 0;
-      a.getByteTimeDomainData(d);
-      let peak = 0;
-      for (let i = 0; i < d.length; i++) {
-        const v = Math.abs(d[i] - 128) / 128; // 128=silence, 0/255=peak
-        if (v > peak) peak = v;
-      }
-      return peak;
-    };
-    const l = readPeak(this.analyserL, this.levelDataL);
-    const r = readPeak(this.analyserR ?? this.analyserL, this.levelDataR ?? this.levelDataL);
-    return [l, r];
+  // Returns mono peak amplitude 0..1 (time-domain, more reactive than frequency bins).
+  getMicLevel(): number {
+    if (!this.analyser || !this.levelData) return 0;
+    this.analyser.getByteTimeDomainData(this.levelData);
+    let peak = 0;
+    for (let i = 0; i < this.levelData.length; i++) {
+      const v = Math.abs(this.levelData[i] - 128) / 128;
+      if (v > peak) peak = v;
+    }
+    return peak;
   }
 
-  // Backward-compat
-  getMicLevel(): number {
-    const [l, r] = this.getMicLevels();
-    return Math.max(l, r);
+  // Kept for interface compatibility with NativeAudioRecorder
+  getMicLevels(): [number, number] {
+    const l = this.getMicLevel();
+    return [l, l];
   }
 
   get state(): string {
@@ -193,35 +188,17 @@ export class AudioRecorder {
   private _setupAnalyser(stream: MediaStream): void {
     try {
       this.audioContext = new AudioContext();
-      const source  = this.audioContext.createMediaStreamSource(stream);
-      const numCh   = source.channelCount;
-
-      // Gain node amplifies signal for the meter only (not for MediaRecorder recording)
+      const source = this.audioContext.createMediaStreamSource(stream);
+      // ×4 gain boost so low-level mic input is visible in the meter
       const meterGain = this.audioContext.createGain();
-      meterGain.gain.value = 4; // ×4 boost — makes low-level mic visible on mobile
-
-      if (numCh >= 2) {
-        const splitter = this.audioContext.createChannelSplitter(2);
-        this.analyserL = this.audioContext.createAnalyser();
-        this.analyserR = this.audioContext.createAnalyser();
-        this.analyserL.fftSize = 2048; // higher resolution for time-domain
-        this.analyserR.fftSize = 2048;
-        this.levelDataL = new Uint8Array(this.analyserL.fftSize);
-        this.levelDataR = new Uint8Array(this.analyserR.fftSize);
-        source.connect(meterGain);
-        meterGain.connect(splitter);
-        splitter.connect(this.analyserL, 0);
-        splitter.connect(this.analyserR, 1);
-      } else {
-        this.analyserL = this.audioContext.createAnalyser();
-        this.analyserL.fftSize = 2048;
-        this.levelDataL = new Uint8Array(this.analyserL.fftSize);
-        source.connect(meterGain);
-        meterGain.connect(this.analyserL);
-      }
-
+      meterGain.gain.value = 4;
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 2048;
+      this.levelData = new Uint8Array(this.analyser.fftSize);
+      source.connect(meterGain);
+      meterGain.connect(this.analyser);
     } catch {
-      // Non-fatal
+      // Non-fatal — meter just stays at 0
     }
   }
 
@@ -230,7 +207,7 @@ export class AudioRecorder {
     this.audioContext?.close().catch(() => {});
     this.stream       = null;
     this.audioContext = null;
-    this.analyserL    = null;   this.levelDataL = null;
-    this.analyserR    = null;   this.levelDataR = null;
+    this.analyser     = null;
+    this.levelData    = null;
   }
 }

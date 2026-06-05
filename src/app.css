@@ -200,7 +200,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   box-shadow: 0 0 0 2px rgba(154,209,255,0.12);
 }
 .input:disabled, .textarea:disabled, .select:disabled { opacity: 0.5; }
-.input::placeholder, .textarea::placeholder { color: rgba(255,255,255,0.25); }
+.input::placeholder, .textarea::placeholder { color: rgba(255,255,255,0.55); }
 .textarea { resize: vertical; min-height: 80px; }
 .select { cursor: pointer; }
 

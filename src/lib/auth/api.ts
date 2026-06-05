@@ -1,9 +1,9 @@
-// EigenVertex HTTP API client — auth endpoints only.
-// Recorder-specific endpoints (session upload) will be added when the backend is ready.
+// EigenVertex HTTP API client — auth + knowledge-session endpoints.
 // Contract matches scanner-app api.ts — same EVUser, same AuthResponse shape.
 
 import { getApiBase, getDirectApiBase } from './config';
 import { getUser } from './auth';
+import type { RecordableKnowledgeSession } from '$lib/recorder/types';
 
 export class ApiError extends Error {
   constructor(
@@ -29,6 +29,12 @@ export async function request<T>(
     ...(opts.headers as Record<string, string> | undefined),
   };
   if (!skipAuth && user) headers['Authorization'] = `Bearer ${user.token}`;
+
+  // Guard: path must NOT include /v1 — getApiBase() already provides it.
+  // A path like '/v1/knowledge-sessions/...' would produce /api/v1/v1/... in dev.
+  if (import.meta.env.DEV && path.startsWith('/v1/')) {
+    console.error(`[EigenRecorder] request() path starts with /v1 — double prefix! Fix: remove /v1 from "${path}"`);
+  }
 
   let res: Response;
   try {
@@ -88,6 +94,18 @@ export async function apiMe(): Promise<{ email: string; name?: string }> {
 
 export async function apiLogout(): Promise<void> {
   await request('/auth/logout', { method: 'POST' });
+}
+
+// ── Knowledge sessions ────────────────────────────────────────────────────────
+
+type RecordableSessionsResponse =
+  | RecordableKnowledgeSession[]
+  | { items: RecordableKnowledgeSession[] };
+
+export async function apiGetRecordableSessions(): Promise<RecordableKnowledgeSession[]> {
+  // path must NOT include /v1 — getApiBase() already adds it
+  const res = await request<RecordableSessionsResponse>('/knowledge-sessions/recordable');
+  return Array.isArray(res) ? res : (res.items ?? []);
 }
 
 export function getGoogleLoginUrl(): string {

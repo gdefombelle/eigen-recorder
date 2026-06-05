@@ -91,15 +91,17 @@
 
       <div class="hero-topbar">
         <div class="ev-wordmark">
-          <svg width="18" height="18" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-            <polygon points="14,1 27,14 14,27 1,14" stroke="#9ad1ff" stroke-width="1.5"/>
-            <circle cx="14" cy="14" r="2.5" fill="#9ad1ff"/>
-            <line x1="1" y1="14" x2="11.5" y2="14" stroke="#9ad1ff" stroke-width="1" opacity=".55"/>
-            <line x1="16.5" y1="14" x2="27" y2="14" stroke="#9ad1ff" stroke-width="1" opacity=".55"/>
-            <line x1="14" y1="1" x2="14" y2="11.5" stroke="#9ad1ff" stroke-width="1" opacity=".55"/>
-            <line x1="14" y1="16.5" x2="14" y2="27" stroke="#9ad1ff" stroke-width="1" opacity=".55"/>
+          <!-- Eigen Recorder logo — losange EigenVertex + point rouge REC -->
+          <svg width="24" height="24" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <polygon points="14,1.7 26.3,14 14,26.3 1.7,14" stroke="#9ad1ff" stroke-width="1.5"/>
+            <polygon points="14,6.2 21.8,14 14,21.8 6.2,14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+            <line x1="1.7"  y1="14" x2="6.2"  y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+            <line x1="21.8" y1="14" x2="26.3" y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+            <line x1="14"   y1="1.7" x2="14"  y2="6.2" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+            <line x1="14"   y1="21.8" x2="14" y2="26.3" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+            <circle cx="14" cy="14" r="2.4" fill="#e5484d"/>
           </svg>
-          <span>EIGENVERTEX</span>
+          <span>EIGEN RECORDER</span>
         </div>
         <ConnectionStatus online={store.isOnline} />
       </div>
@@ -279,12 +281,13 @@
   {#if !authed}
     <section class="final-cta">
       <svg width="36" height="36" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-        <polygon points="14,1 27,14 14,27 1,14" stroke="#9ad1ff" stroke-width="1.5"/>
-        <circle cx="14" cy="14" r="2.5" fill="#9ad1ff"/>
-        <line x1="1" y1="14" x2="11.5" y2="14" stroke="#9ad1ff" stroke-width="1" opacity=".55"/>
-        <line x1="16.5" y1="14" x2="27" y2="14" stroke="#9ad1ff" stroke-width="1" opacity=".55"/>
-        <line x1="14" y1="1" x2="14" y2="11.5" stroke="#9ad1ff" stroke-width="1" opacity=".55"/>
-        <line x1="14" y1="16.5" x2="14" y2="27" stroke="#9ad1ff" stroke-width="1" opacity=".55"/>
+        <polygon points="14,1.7 26.3,14 14,26.3 1.7,14" stroke="#9ad1ff" stroke-width="1.5"/>
+        <polygon points="14,6.2 21.8,14 14,21.8 6.2,14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="1.7"  y1="14" x2="6.2"  y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="21.8" y1="14" x2="26.3" y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="14"   y1="1.7" x2="14"  y2="6.2" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="14"   y1="21.8" x2="14" y2="26.3" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <circle cx="14" cy="14" r="2.4" fill="#e5484d"/>
       </svg>
       <h2>
         {isFr ? 'Commencez gratuitement dès maintenant' : 'Get started for free today'}
@@ -359,22 +362,24 @@
     padding: var(--sp-8) 0;
     overflow: hidden;
   }
-  .hero-inner { position: relative; z-index: 1; max-width: 500px; }
+  .hero-inner { position: relative; z-index: 1; max-width: 500px; width: 100%; }
 
   .hero-topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: var(--sp-6);
+    margin-bottom: var(--sp-5);
+    padding-bottom: var(--sp-5);
+    border-bottom: 1px solid var(--ev-border);
   }
   .ev-wordmark {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     font-family: var(--font-display);
     font-weight: 700;
-    font-size: 0.72rem;
-    letter-spacing: 0.14em;
+    font-size: 0.9rem;
+    letter-spacing: 0.12em;
     color: var(--ev-blue);
   }
 
@@ -447,7 +452,7 @@
   .hero-hint {
     margin: var(--sp-3) 0 0;
     font-size: 0.72rem;
-    color: rgba(255,255,255,0.28);
+    color: rgba(255,255,255,0.48);
     font-family: var(--font-display);
     letter-spacing: 0.04em;
   }

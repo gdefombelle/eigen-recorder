@@ -40,6 +40,7 @@
       recording_offline: { cls: 'badge-red',    label: 'Interrupted' },
       paused:            { cls: 'badge-orange', label: 'Paused' },
       stopped_local:     { cls: 'badge-orange', label: 'Local' },
+      synced:            { cls: 'badge-green',  label: '◈ Synced' },
       mock_uploading:    { cls: 'badge-blue',   label: 'Syncing' },
       mock_synced:       { cls: 'badge-green',  label: 'Synced' },
       error:             { cls: 'badge-red',    label: 'Error' },

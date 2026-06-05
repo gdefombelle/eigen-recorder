@@ -4,8 +4,7 @@
   import { goto } from '$app/navigation';
   import { recorderStore } from '$lib/recorder/recorderStore';
   import RecordingTimer from './RecordingTimer.svelte';
-  import StereoMicMeter from './StereoMicMeter.svelte';
-  import OrientationGuide from './OrientationGuide.svelte';
+  import MicLevelMeter from './MicLevelMeter.svelte';
   import RecorderControls from './RecorderControls.svelte';
   import UploadQueueStatus from './UploadQueueStatus.svelte';
   import ConnectionStatus from './ConnectionStatus.svelte';
@@ -36,18 +35,9 @@
   $: authed    = isAuthenticated();
   $: syncMode  = store.syncMode;
   $: isStreaming = isRecording && syncMode === 'stream';
-
-  function onSyncModeChange(e: CustomEvent<never> & { currentTarget: HTMLElement }) {
-    // bound via bind:mode — handled reactively
-  }
+  $: liveState = store.liveStreamState;
 
   let loadError = '';
-  let guideDismissed = false;
-
-  // Vrai stéréo = les deux canaux ont du signal ET sont différents
-  // (évite le faux positif quand un canal est à 0)
-  $: isStereo = store.micLevelL > 0.02 && store.micLevelR > 0.02
-    && Math.abs(store.micLevelL - store.micLevelR) > 0.01;
 
   onMount(async () => {
     recorderStore.init();
@@ -183,28 +173,21 @@
         />
       {/if}
 
-      <!-- Guide d'orientation — dismissable -->
-      {#if !guideDismissed && !isStopped && !isUploading}
-        <OrientationGuide bind:dismissed={guideDismissed} />
-      {/if}
-
-      <!-- Streaming indicator — during recording in stream mode -->
+      <!-- Live stream indicator — during recording in stream mode, and post-stop summary -->
       {#if isStreaming || (isStopped && syncMode === 'stream')}
         <StreamingIndicator
-          streamedCount={store.streamedCount}
-          totalChunks={store.chunks.length}
+          liveStreamState={liveState}
+          framesStreamed={store.framesStreamed}
           pulse={store.streamPulse}
           online={store.isOnline}
         />
       {/if}
 
-      <!-- Double vumètre stéréo -->
+      <!-- Mono mic level meter -->
       <div class="level-zone">
-        <StereoMicMeter
-          levelL={store.micLevelL}
-          levelR={store.micLevelR}
+        <MicLevelMeter
+          level={store.micLevel}
           active={isRecording}
-          stereo={isStereo}
         />
       </div>
 
@@ -245,10 +228,14 @@
               <p class="signin-sync-hint">{t().auth.signInHint}</p>
             {/if}
           {:else}
-            <!-- Was streamed — show summary -->
-            <div class="stream-done">
+            <!-- Was live-streamed via PCM WebSocket -->
+            <div class="stream-done" class:stream-failed={liveState === 'failed'}>
               <span class="stream-done-icon">◈</span>
-              <span>{store.streamedCount}/{store.chunks.length} chunks streamed to EigenVertex</span>
+              {#if liveState === 'failed'}
+                <span>Stream interrupted — audio may be partial</span>
+              {:else}
+                <span>{store.framesStreamed} frames streamed to EigenVertex</span>
+              {/if}
             </div>
           {/if}
 
@@ -415,7 +402,13 @@
     font-size: 0.82rem;
     color: var(--ev-text-dim);
   }
+  .stream-done.stream-failed {
+    background: rgba(245,158,11,0.06);
+    border-color: rgba(245,158,11,0.25);
+    color: var(--ev-orange);
+  }
   .stream-done-icon { color: var(--ev-blue); font-size: 1rem; }
+  .stream-failed .stream-done-icon { color: var(--ev-orange); }
 
   /* ── Sign-in to sync ── */
   .signin-sync-btn {

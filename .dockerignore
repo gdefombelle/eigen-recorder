@@ -1,0 +1,10 @@
+node_modules
+ios
+android
+.capacitor-spm
+.svelte-kit
+build
+*.tar.gz
+.git
+.env*
+scripts/generate-icons.mjs

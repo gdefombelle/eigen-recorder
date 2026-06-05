@@ -139,7 +139,7 @@
     width: 100%;
   }
   .auth-field input:focus { border-color: var(--ev-blue); }
-  .auth-field input::placeholder { color: rgba(255,255,255,0.25); }
+  .auth-field input::placeholder { color: rgba(255,255,255,0.55); }
   .auth-error {
     margin: 0;
     padding: 10px 12px;
