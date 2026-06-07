@@ -64,9 +64,14 @@
     </button>
 
     <div class="brand">
-      <svg class="brand-diamond" width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <path d="M9 1.5L16.5 9 9 16.5 1.5 9Z" stroke="var(--blue-bright)" stroke-width="1.5"/>
-        <path d="M9 5L13 9 9 13 5 9Z" fill="var(--blue-bright)" opacity="0.5"/>
+      <svg class="brand-diamond" width="20" height="20" viewBox="0 0 28 28" fill="none">
+        <polygon points="14,1.7 26.3,14 14,26.3 1.7,14" stroke="#9ad1ff" stroke-width="1.5"/>
+        <polygon points="14,6.2 21.8,14 14,21.8 6.2,14" stroke="#9ad1ff" stroke-width="0.9" opacity=".65"/>
+        <line x1="1.7"  y1="14" x2="6.2"  y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="21.8" y1="14" x2="26.3" y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="14"   y1="1.7" x2="14"  y2="6.2" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="14"   y1="21.8" x2="14" y2="26.3" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <circle cx="14" cy="14" r="2.4" fill="#e5484d"/>
       </svg>
       <span class="brand-name">EIGEN RECORDER</span>
     </div>

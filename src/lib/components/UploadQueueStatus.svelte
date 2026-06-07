@@ -17,12 +17,12 @@
   <div class="stats-row">
     <div class="stat">
       <span class="stat-val">{chunks.length}</span>
-      <span class="stat-key">chunks</span>
+      <span class="stat-key">local files</span>
     </div>
     <div class="stat-sep">·</div>
     <div class="stat">
       <span class="stat-val">{formatBytes(totalSizeBytes)}</span>
-      <span class="stat-key">saved</span>
+      <span class="stat-key">on device</span>
     </div>
     {#if chunks.length > 0}
       <div class="stat-sep">·</div>
@@ -35,7 +35,7 @@
 
   {#if isSynced}
     <div class="sync-badge synced">
-      <span>✓</span> Mock-synced to backend
+      <span>✓</span> Synced to EigenVertex
     </div>
   {:else if isUploading}
     <div class="sync-badge uploading">
@@ -44,10 +44,10 @@
   {:else if pending > 0}
     <div class="not-uploaded">
       <span class="warn-icon">⚠</span>
-      <span>{pending} chunk{pending > 1 ? 's' : ''} not uploaded yet</span>
+      <span>{pending} chunk{pending > 1 ? 's' : ''} not synced yet</span>
       {#if onMockUpload}
         <button class="btn btn-sm btn-ghost" on:click={onMockUpload}>
-          Mock Sync
+          Sync to EigenVertex
         </button>
       {/if}
     </div>

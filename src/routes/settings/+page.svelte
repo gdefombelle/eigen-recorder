@@ -97,13 +97,33 @@
 
 <main>
   <div class="page">
-    <!-- Header -->
-    <div class="s-header">
-      <button class="s-back" on:click={() => goto('/recorder')} aria-label="Back">
-        <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round">
-          <path d="M19 12H5"/><path d="m12 5-7 7 7 7"/>
+    <!-- ── Branded nav bar ── -->
+    <nav class="page-nav">
+      <button class="back-btn" on:click={() => goto('/recorder')}>
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M9 3L4 7.5 9 12"/>
         </svg>
+        Back
       </button>
+
+      <div class="brand">
+        <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
+          <polygon points="14,1.7 26.3,14 14,26.3 1.7,14" stroke="#9ad1ff" stroke-width="1.5"/>
+          <polygon points="14,6.2 21.8,14 14,21.8 6.2,14" stroke="#9ad1ff" stroke-width="0.9" opacity=".65"/>
+          <line x1="1.7"  y1="14" x2="6.2"  y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+          <line x1="21.8" y1="14" x2="26.3" y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+          <line x1="14"   y1="1.7" x2="14"  y2="6.2" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+          <line x1="14"   y1="21.8" x2="14" y2="26.3" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+          <circle cx="14" cy="14" r="2.4" fill="#e5484d"/>
+        </svg>
+        <span class="brand-name">EIGEN RECORDER</span>
+      </div>
+
+      <div style="width: 64px; flex-shrink: 0;"></div>
+    </nav>
+
+    <!-- ── Page title ── -->
+    <div class="s-page-title-row">
       <h1 class="s-title">{t().settings.pageTitle}</h1>
     </div>
 
@@ -289,36 +309,63 @@
     width: 100%;
   }
 
-  /* Header */
-  .s-header {
+  /* ── Branded nav bar ── */
+  .page-nav {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
-    height: 54px;
+    justify-content: space-between;
+    padding: 10px var(--sp-4);
     border-bottom: 1px solid var(--ev-border);
-    padding: 0 var(--sp-4);
     flex-shrink: 0;
+    min-height: 54px;
   }
-  .s-back {
+
+  .back-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     background: none;
     border: none;
     color: var(--ev-blue);
-    padding: 6px;
-    border-radius: var(--radius-sm);
-    display: grid;
-    place-items: center;
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-family: var(--font-sans);
     cursor: pointer;
+    padding: 4px 0;
+    flex-shrink: 0;
+    transition: opacity 120ms;
   }
-  .s-back:hover { background: rgba(255,255,255,0.06); }
+  .back-btn:hover { opacity: 0.7; }
 
+  .brand {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+  }
+  .brand-name {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ev-text);
+    white-space: nowrap;
+  }
+
+  /* ── Page title ── */
+  .s-page-title-row {
+    padding: var(--sp-4) var(--sp-4) 0;
+    border-bottom: none;
+  }
   .s-title {
     font-family: var(--font-display);
-    font-size: 0.9rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: 1.4rem;
+    font-weight: 700;
     margin: 0;
-    flex: 1;
   }
 
   /* Sections */

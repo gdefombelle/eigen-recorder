@@ -1,8 +1,11 @@
 // knowledgeSessionApi — real backend contract for EigenVertex KnowledgeSession.
 //
-// Flow at Start Session:
-//   Case A (planned session): registerDevice → startSession
-//   Case B (free session):    createSession → registerDevice → startSession
+// Flow at Start Session — recorder form + recorder geolocation are the
+// source of truth at the moment of Start (they always win over whatever was
+// pre-entered in the app for a planned session):
+//   Case A (planned session): recorderSync(reconcile) → registerDevice → startSession
+//   Case B (free session):    createSession           → registerDevice → startSession
+//   Case C (Record now):      createSession (minimal) → registerDevice → startSession
 //
 // All calls use the shared request() wrapper from auth/api.ts (JWT, base URL config).
 
@@ -19,14 +22,48 @@ export type KnowledgeSessionType =
 
 export type KnowledgeSessionMode = 'online' | 'offline' | 'hybrid';
 
+/** A participant as sent on the wire — backend expects display_name objects, not bare strings. */
+export interface ParticipantPayload {
+  display_name: string;
+}
+
+/** Convert local participant name list → wire format. Returns undefined when empty (omit field). */
+export function toParticipantPayload(names: string[]): ParticipantPayload[] | undefined {
+  const list = names.map((n) => n.trim()).filter(Boolean).map((display_name) => ({ display_name }));
+  return list.length ? list : undefined;
+}
+
 export interface CreateKnowledgeSessionPayload {
-  title:          string;
-  session_type:   KnowledgeSessionType;
-  mode:           KnowledgeSessionMode;
-  subject?:       string;
-  agenda?:        string;
+  project_id?:     string | null;
+  title:           string;
+  session_type:    KnowledgeSessionType;
+  mode:            KnowledgeSessionMode;
+  subject?:        string | null;
+  agenda?:         string | null;
   location_label?: string | null;
-  participants?:  string[];
+  geo_lat?:        number | null;
+  geo_lng?:        number | null;
+  participants?:   ParticipantPayload[];
+  metadata_json?:  Record<string, unknown>;
+}
+
+/**
+ * Payload for POST /v1/knowledge-sessions/{id}/recorder-sync.
+ * Backend MERGES metadata_json rather than overwriting it — safe to send
+ * only the recorder-known subset on every sync.
+ */
+export interface RecorderSyncPayload {
+  project_id?:     string | null;
+  title?:          string | null;
+  session_type?:   KnowledgeSessionType;
+  mode?:           KnowledgeSessionMode;
+  subject?:        string | null;
+  agenda?:         string | null;
+  location_label?: string | null;
+  geo_lat?:        number | null;
+  geo_lng?:        number | null;
+  participants?:   ParticipantPayload[];
+  metadata_json?:  Record<string, unknown>;
 }
 
 export interface KnowledgeSessionResponse {
@@ -128,11 +165,28 @@ export async function stopKnowledgeSession(sessionId: string): Promise<void> {
 
 // ── API calls ──────────────────────────────────────────────────────────────
 
-/** Case B — create a new KnowledgeSession from the recorder form */
+/** Case B/C — create a new KnowledgeSession from the recorder form (or a minimal "Record now" payload) */
 export async function createKnowledgeSession(
   payload: CreateKnowledgeSessionPayload
 ): Promise<KnowledgeSessionResponse> {
   return request<KnowledgeSessionResponse>('/knowledge-sessions', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Case A — reconcile a pre-existing planned session with the recorder's own
+ * form state and geolocation right before Start. The recorder is the source
+ * of truth at this moment: its location_label/geo_lat/geo_lng must win over
+ * whatever was entered earlier in the app, so they are always sent here
+ * (never skipped just because the planned session already had a location).
+ */
+export async function syncKnowledgeSessionFromRecorder(
+  sessionId: string,
+  payload: RecorderSyncPayload
+): Promise<void> {
+  await request(`/knowledge-sessions/${sessionId}/recorder-sync`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });

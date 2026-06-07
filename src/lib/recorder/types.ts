@@ -35,6 +35,7 @@ export interface RecordableKnowledgeSession {
   agenda:               string;
   location_label:       string | null;
   workspace_name:       string | null;
+  project_id?:          string | null;
   can_resume_recording: boolean;
   is_live:              boolean;
   participants?:        string[];
@@ -169,7 +170,15 @@ export interface CreateSessionParams {
   agenda:               string;
   participants:         string[];
   location_label:       string | null;
+  // Recorder-captured geolocation — source of truth at Start time, takes
+  // precedence over any location previously entered in the app for a planned session.
+  geo_lat?:             number | null;
+  geo_lng?:             number | null;
+  // Carried through from a picked planned session, when the backend provides one.
+  project_id?:          string | null;
   knowledge_session_id: string | null;
+  // Which recorder surface produced this session — feeds metadata_json.recorder_surface.
+  recorder_surface?:    'new_session_form' | 'existing_session_form' | 'record_now';
 }
 
 export interface RecorderApiContract {

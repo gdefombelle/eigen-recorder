@@ -1,10 +1,41 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { langStore, t } from '$lib/i18n/index';
   import { authStore, isAuthenticated, getUser } from '$lib/auth/auth';
   import { recorderStore } from '$lib/recorder/recorderStore';
   import OfflineSessionsList from '$lib/components/OfflineSessionsList.svelte';
   import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
+
+  // PWA install prompt — captured before it fires, shown as a button
+  let installPrompt: BeforeInstallPromptEvent | null = null;
+  let installed = false;
+
+  interface BeforeInstallPromptEvent extends Event {
+    prompt(): Promise<void>;
+    userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+  }
+
+  onMount(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      installPrompt = e as BeforeInstallPromptEvent;
+    };
+    const installedHandler = () => { installed = true; installPrompt = null; };
+    window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', installedHandler);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('appinstalled', installedHandler);
+    };
+  });
+
+  async function installPWA() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') { installed = true; installPrompt = null; }
+  }
 
   $: _lang  = $langStore;
   $: _auth  = $authStore;
@@ -145,6 +176,22 @@
       </div>
 
       <p class="hero-hint">{HERO.hint}</p>
+
+      {#if installPrompt && !installed}
+        <button class="install-btn" on:click={installPWA}>
+          <svg width="16" height="16" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <polygon points="14,1.7 26.3,14 14,26.3 1.7,14" stroke="#9ad1ff" stroke-width="1.5"/>
+            <polygon points="14,6.2 21.8,14 14,21.8 6.2,14" stroke="#9ad1ff" stroke-width="0.9" opacity=".65"/>
+            <line x1="1.7"  y1="14" x2="6.2"  y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+            <line x1="21.8" y1="14" x2="26.3" y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+            <line x1="14"   y1="1.7" x2="14"  y2="6.2" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+            <line x1="14"   y1="21.8" x2="14" y2="26.3" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+            <circle cx="14" cy="14" r="2.4" fill="#e5484d"/>
+          </svg>
+          {isFr ? "Installer l'application" : 'Install app'}
+          <span class="install-arrow">↓</span>
+        </button>
+      {/if}
     </div>
 
     <!-- EigenVertex mark -->
@@ -456,6 +503,30 @@
     font-family: var(--font-display);
     letter-spacing: 0.04em;
   }
+
+  /* ─── PWA Install button ─── */
+  .install-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: var(--sp-4);
+    padding: 8px 16px;
+    background: rgba(154,209,255,0.06);
+    border: 1px solid rgba(154,209,255,0.22);
+    border-radius: var(--radius-md);
+    color: var(--ev-blue);
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-family: var(--font-display);
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 150ms, border-color 150ms;
+  }
+  .install-btn:hover {
+    background: rgba(154,209,255,0.12);
+    border-color: rgba(154,209,255,0.4);
+  }
+  .install-arrow { opacity: 0.6; font-size: 0.9rem; }
 
   /* ─── Buttons ─── */
   .btn-primary {

@@ -7,7 +7,6 @@
   import MicLevelMeter from './MicLevelMeter.svelte';
   import RecorderControls from './RecorderControls.svelte';
   import UploadQueueStatus from './UploadQueueStatus.svelte';
-  import ConnectionStatus from './ConnectionStatus.svelte';
   import OfflineBanner from './OfflineBanner.svelte';
   import { SESSION_TYPE_LABELS } from '$lib/recorder/types';
   import { isSafariLimited, getSupportedMimeType } from '$lib/recorder/audioRecorder';
@@ -80,26 +79,45 @@
     <OfflineBanner visible />
   {/if}
 
-  <!-- ── Header ── -->
-  <div class="k7-header">
-    <!-- Back only visible before recording starts — once REC is pressed, STOP is the only exit -->
-    {#if store.state === 'ready' || store.state === 'stopped_local' || store.state === 'mock_synced' || isStopped}
-      <button class="back-btn" on:click={() => goto('/recorder')}>← Retour</button>
+  <!-- ── Branded nav bar ── -->
+  <nav class="page-nav">
+    {#if store.state === 'ready' || isStopped}
+      <button class="back-btn" on:click={() => goto('/recorder')}>
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M9 3L4 7.5 9 12"/>
+        </svg>
+        Back
+      </button>
     {:else}
-      <div class="back-placeholder"></div>
+      <div class="nav-spacer"></div>
     {/if}
 
-    <div class="header-info">
-      <div class="session-type-label">
-        {session ? SESSION_TYPE_LABELS[session.session_type] : '—'}
-      </div>
-      <div class="session-title-label">
-        {session?.title ?? '—'}
-      </div>
+    <div class="brand">
+      <svg class="brand-diamond" width="20" height="20" viewBox="0 0 28 28" fill="none">
+        <polygon points="14,1.7 26.3,14 14,26.3 1.7,14" stroke="#9ad1ff" stroke-width="1.5"/>
+        <polygon points="14,6.2 21.8,14 14,21.8 6.2,14" stroke="#9ad1ff" stroke-width="0.9" opacity=".65"/>
+        <line x1="1.7"  y1="14" x2="6.2"  y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="21.8" y1="14" x2="26.3" y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="14"   y1="1.7" x2="14"  y2="6.2" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <line x1="14"   y1="21.8" x2="14" y2="26.3" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
+        <circle cx="14" cy="14" r="2.4" fill="#e5484d"/>
+      </svg>
+      <span class="brand-name">EIGEN RECORDER</span>
     </div>
 
-    <ConnectionStatus online={store.isOnline} />
-  </div>
+    <div class="conn-badge" class:online={store.isOnline} class:offline={!store.isOnline}>
+      <span class="conn-dot"></span>
+      {store.isOnline ? 'Online' : 'Offline'}
+    </div>
+  </nav>
+
+  <!-- ── Session info bar ── -->
+  {#if session}
+    <div class="session-info-bar">
+      <span class="session-type-tag">{SESSION_TYPE_LABELS[session.session_type]}</span>
+      <span class="session-title-text">{session.title}</span>
+    </div>
+  {/if}
 
   <!-- ── Error state ── -->
   {#if loadError}
@@ -198,8 +216,8 @@
         </div>
       {/if}
 
-      <!-- Stats & upload queue (single instance) -->
-      {#if store.chunks.length > 0 || isStopped || isUploading}
+      <!-- Stats & upload queue — only when there's local audio saved -->
+      {#if store.chunks.length > 0}
         <div class="stats-zone card">
           <UploadQueueStatus
             chunks={store.chunks}
@@ -244,7 +262,7 @@
       {:else if store.state === 'mock_synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
-          <div class="synced-msg"><span class="synced-check">✓</span>Synced — <code>{session?.remote_session_id}</code></div>
+          <div class="synced-msg"><span class="synced-check">✓</span>Synced to EigenVertex{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
           <button class="btn btn-ghost btn-full" on:click={() => goto('/recorder')}>Back to sessions</button>
         </div>
       {:else if isUploading}
@@ -278,42 +296,101 @@
     background: var(--bg);
   }
 
-  /* ── Header ── */
-  .k7-header {
+  /* ── Branded nav bar ── */
+  .page-nav {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-4);
-    border-bottom: 1px solid var(--border-dim);
+    justify-content: space-between;
+    padding: 10px var(--sp-4);
+    border-bottom: 1px solid var(--ev-border);
     flex-shrink: 0;
-    min-height: 60px;
+    min-height: 54px;
   }
 
   .back-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     background: none;
     border: none;
     color: var(--ev-blue);
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 600;
     font-family: var(--font-sans);
     cursor: pointer;
-    padding: 0;
+    padding: 4px 0;
     flex-shrink: 0;
     transition: opacity 120ms;
   }
   .back-btn:hover { opacity: 0.7; }
-  .back-placeholder { width: 60px; flex-shrink: 0; }
+  .nav-spacer { width: 60px; flex-shrink: 0; }
 
-  .header-info { flex: 1; min-width: 0; }
-  .session-type-label {
+  .brand {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+  }
+  .brand-diamond { flex-shrink: 0; }
+  .brand-name {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ev-text);
+    white-space: nowrap;
+  }
+
+  .conn-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: var(--r-full);
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    border: 1px solid;
+    flex-shrink: 0;
+  }
+  .conn-badge.online  { background: var(--green-dim); color: var(--green); border-color: var(--green); }
+  .conn-badge.offline { background: var(--red-dim);   color: var(--red);   border-color: var(--red); }
+  .conn-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .conn-badge.online .conn-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+  /* ── Session info bar (below nav) ── */
+  .session-info-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-4);
+    border-bottom: 1px solid var(--ev-border);
+    flex-shrink: 0;
+    min-height: 36px;
+  }
+  .session-type-tag {
     font-size: 0.6rem;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--blue-bright);
+    background: rgba(154,209,255,0.1);
+    padding: 2px 7px;
+    border-radius: var(--r-full);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
-  .session-title-label {
-    font-size: 0.9rem;
+  .session-title-text {
+    font-size: 0.88rem;
     font-weight: 600;
     color: var(--text);
     white-space: nowrap;

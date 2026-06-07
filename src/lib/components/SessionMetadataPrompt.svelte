@@ -1,6 +1,7 @@
 <script context="module" lang="ts">
   // Persists across component remounts — one geolocation request per session
-  const _geoCache = { done: false, address: '', error: '' };
+  const _geoCache: { done: boolean; address: string; error: string; lat: number | null; lng: number | null } =
+    { done: false, address: '', error: '', lat: null, lng: null };
 </script>
 
 <script lang="ts">
@@ -23,6 +24,12 @@
   let agenda:          string               = '';
   let participantsRaw: string               = '';
   let location_label:  string               = '';
+
+  // Raw recorder geolocation — sent alongside location_label as the source of
+  // truth at Start time (takes precedence over any app-entered location).
+  let geoLat: number | null = null;
+  let geoLng: number | null = null;
+  let geoFromDevice = false; // true once a real GPS fix has been captured (vs. manual text entry)
 
   const SESSION_TYPES = Object.entries(SESSION_TYPE_LABELS) as [KnowledgeSessionType, string][];
 
@@ -116,6 +123,9 @@
       geoLoading = false;
       geoAddress = _geoCache.address;
       geoError   = _geoCache.error;
+      geoLat     = _geoCache.lat;
+      geoLng     = _geoCache.lng;
+      geoFromDevice = _geoCache.lat !== null;
       if (!location_label && geoAddress) location_label = geoAddress;
       return;
     }
@@ -137,7 +147,12 @@
 
       const coords = formatCoords(res.position);
       geoAddress  = coords;
+      geoLat      = res.position.latitude;
+      geoLng      = res.position.longitude;
+      geoFromDevice     = true;
       _geoCache.address = coords;
+      _geoCache.lat     = geoLat;
+      _geoCache.lng     = geoLng;
       if (!location_label) location_label = coords;
       geoLoading  = false;
 
@@ -177,6 +192,7 @@
   let meetingsLoading      = false;
   let sessionsError        = '';
   let selectedSessionId:   string | null = null;
+  let selectedProjectId:   string | null = null;
 
   async function loadRecordableSessions() {
     if (!isAuthenticated()) return;
@@ -193,17 +209,22 @@
 
   function applyPlannedMeeting(s: RecordableKnowledgeSession) {
     selectedSessionId = s.id;
+    selectedProjectId = s.project_id ?? null;
     title             = s.title;
     session_type      = s.session_type;
     subject           = s.subject ?? '';
     agenda            = s.agenda ?? '';
     if (s.participants?.length) participantsRaw = s.participants.join('\n');
+    // Pre-fill from the planned session, but the recorder's own location
+    // (location_label + geoLat/geoLng captured above) remains the source of
+    // truth and will override this at Start time via recorder-sync.
     if (s.location_label && !location_label)   location_label = s.location_label;
     showMeetingPicker = false;
   }
 
   function clearSession() {
     selectedSessionId = null;
+    selectedProjectId = null;
     title             = '';
     subject           = '';
     agenda            = '';
@@ -258,7 +279,12 @@
     if (res.position) {
       const coords = formatCoords(res.position);
       geoAddress = coords;
+      geoLat     = res.position.latitude;
+      geoLng     = res.position.longitude;
+      geoFromDevice     = true;
       _geoCache.address = coords;
+      _geoCache.lat     = geoLat;
+      _geoCache.lng     = geoLng;
       _geoCache.done    = true;
       if (!location_label) location_label = coords;
       // Background reverse geocoding
@@ -288,7 +314,11 @@
       agenda:               '',
       participants:         [],
       location_label:       location_label.trim() || null,
+      geo_lat:              geoFromDevice ? geoLat : null,
+      geo_lng:              geoFromDevice ? geoLng : null,
+      project_id:           null,
       knowledge_session_id: null,
+      recorder_surface:     'record_now',
     });
   }
 
@@ -302,7 +332,11 @@
       agenda:               agenda.trim(),
       participants:         participantsRaw.split('\n').map(p => p.trim()).filter(Boolean),
       location_label:       location_label.trim() || null,
+      geo_lat:              geoFromDevice ? geoLat : null,
+      geo_lng:              geoFromDevice ? geoLng : null,
+      project_id:           selectedProjectId,
       knowledge_session_id: selectedSessionId,
+      recorder_surface:     selectedSessionId ? 'existing_session_form' : 'new_session_form',
     });
   }
 </script>

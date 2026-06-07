@@ -20,7 +20,7 @@ import type {
   AudioChunkMetadata,
   LiveStreamState,
 } from './types';
-import { AudioRecorder } from './audioRecorder';
+import { AudioRecorder, getSupportedMimeType } from './audioRecorder';
 import { NativeAudioRecorder } from './nativeAudioRecorder';
 import { PcmCapture } from './pcmCapture';
 import { LiveStreamClient } from './liveStreamClient';
@@ -31,11 +31,13 @@ import { generateLocalId, getBrowserName } from './utils';
 import { isNative } from '$lib/platform';
 import {
   createKnowledgeSession,
+  syncKnowledgeSessionFromRecorder,
   registerKnowledgeSessionDevice,
   startKnowledgeSession,
   stopKnowledgeSession,
   uploadAudioChunk,
   buildDevicePayload,
+  toParticipantPayload,
 } from './knowledgeSessionApi';
 import { getUser, isAuthenticated, authStore } from '$lib/auth/auth';
 
@@ -65,6 +67,12 @@ let recorder: AudioRecorder | NativeAudioRecorder | null = null;
 // PCM stream-mode capture + WebSocket client
 let pcmCapture: PcmCapture | null = null;
 let liveClient: LiveStreamClient | null = null;
+
+// Local backup MediaRecorder — runs on the same stream as PcmCapture.
+// Saves a local WebM copy to IndexedDB so Share Audio works in stream mode.
+let localBackupMR: MediaRecorder | null = null;
+let localBackupBlobs: Blob[] = [];
+let localBackupMimeType = '';
 
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 let _creating = false; // idempotence guard
@@ -387,16 +395,52 @@ export const recorderStore = {
       if (shouldSync) {
         let knowledgeSessionId = params.knowledge_session_id ?? null;
 
+        // Recorder geolocation is the source of truth at Start time — it always
+        // wins over any location previously entered in the app for a planned session.
+        const geoLat   = params.geo_lat ?? null;
+        const geoLng   = params.geo_lng ?? null;
+        const surface  = params.recorder_surface
+          ?? (knowledgeSessionId ? 'existing_session_form'
+              : draft.session_type === 'free_recording' ? 'record_now' : 'new_session_form');
+        const metadataJson = {
+          recorder_surface: surface,
+          location_source:  geoLat !== null && geoLng !== null ? 'recorder_geolocation'
+                            : draft.location_label ? 'manual_entry' : 'unavailable',
+        };
+
         try {
-          if (!knowledgeSessionId) {
-            const created = await createKnowledgeSession({
+          if (knowledgeSessionId) {
+            // Flow A — reconcile the pre-existing planned session with the
+            // recorder's current form state + geolocation before starting it.
+            await syncKnowledgeSessionFromRecorder(knowledgeSessionId, {
+              project_id:     params.project_id ?? null,
               title:          draft.title,
               session_type:   draft.session_type,
               mode:           'online',
-              subject:        draft.subject   || undefined,
-              agenda:         draft.agenda    || undefined,
+              subject:        draft.subject || null,
+              agenda:         draft.agenda  || null,
               location_label: draft.location_label,
-              participants:   draft.participants.length ? draft.participants : undefined,
+              geo_lat:        geoLat,
+              geo_lng:        geoLng,
+              participants:   toParticipantPayload(draft.participants),
+              metadata_json:  metadataJson,
+            });
+          } else {
+            // Flow B (full form) / Flow C (Record now) — create the backend
+            // KnowledgeSession from the recorder form (Record now uses a
+            // minimal payload but still creates a real session).
+            const created = await createKnowledgeSession({
+              project_id:     params.project_id ?? null,
+              title:          draft.title,
+              session_type:   draft.session_type,
+              mode:           'online',
+              subject:        draft.subject || null,
+              agenda:         draft.agenda  || null,
+              location_label: draft.location_label,
+              geo_lat:        geoLat,
+              geo_lng:        geoLng,
+              participants:   toParticipantPayload(draft.participants),
+              metadata_json:  metadataJson,
             });
             knowledgeSessionId = created.id;
           }
@@ -569,6 +613,22 @@ export const recorderStore = {
       pcmCapture = capture;
       liveClient = client;
 
+      // Start local backup recorder on the same stream for Share Audio support.
+      // This is a local-only MediaRecorder — no second backend path.
+      const backupMime = getSupportedMimeType();
+      if (backupMime && capture.stream) {
+        try {
+          const mr = new MediaRecorder(capture.stream, { audioBitsPerSecond: 64_000, mimeType: backupMime });
+          localBackupBlobs     = [];
+          localBackupMimeType  = mr.mimeType || backupMime;
+          mr.ondataavailable   = (ev) => { if (ev.data?.size > 0) localBackupBlobs.push(ev.data); };
+          mr.start(10_000);
+          localBackupMR = mr;
+        } catch {
+          // Backup recorder failed — share will be unavailable but streaming continues
+        }
+      }
+
       const now = new Date().toISOString();
       const updatedSession: LocalKnowledgeSession = {
         ...currentSession,
@@ -637,6 +697,10 @@ export const recorderStore = {
     if (pcmCapture) {
       // PCM stream mode — suspend AudioContext (worklet stops, WS stays open)
       pcmCapture.pause();
+      if (localBackupMR?.state === 'recording') {
+        localBackupMR.requestData();
+        localBackupMR.pause();
+      }
     } else {
       recorder?.pause();
     }
@@ -650,6 +714,7 @@ export const recorderStore = {
 
     if (pcmCapture) {
       pcmCapture.resume();
+      if (localBackupMR?.state === 'paused') localBackupMR.resume();
     } else {
       recorder?.resume();
     }
@@ -678,7 +743,40 @@ export const recorderStore = {
       liveClient.close();
       liveClient = null;
 
-      await _finalizeStop(currentSession, finalMs);
+      // Stop backup recorder and save local copy for Share Audio
+      if (localBackupMR && localBackupMR.state !== 'inactive') {
+        await new Promise<void>((resolve) => {
+          localBackupMR!.onstop = () => resolve();
+          if (localBackupMR!.state === 'paused') localBackupMR!.resume();
+          localBackupMR!.stop();
+        });
+      }
+      if (localBackupBlobs.length > 0) {
+        const merged = new Blob(localBackupBlobs, { type: localBackupMimeType || 'audio/webm' });
+        const meta: AudioChunkMetadata = {
+          local_chunk_id:   generateLocalId(),
+          local_session_id: currentSession.local_session_id,
+          chunk_index:      0,
+          start_ms:         0,
+          end_ms:           finalMs,
+          mime_type:        localBackupMimeType || 'audio/webm',
+          size_bytes:       merged.size,
+          saved_at:         new Date().toISOString(),
+          uploaded_at:      null,
+          status:           'saved',
+        };
+        await offlineStorage.saveChunk(meta, merged);
+        const sessionWithMime: LocalKnowledgeSession = {
+          ...currentSession,
+          metadata: { ...currentSession.metadata, mime_type: meta.mime_type, chunk_duration_ms: finalMs },
+        };
+        await offlineStorage.saveSession(sessionWithMime);
+        update((s) => ({ ...s, chunks: [meta], totalSizeBytes: merged.size, currentSession: sessionWithMime }));
+      }
+      localBackupMR    = null;
+      localBackupBlobs = [];
+
+      await _finalizeStop(get(recorderStore).currentSession ?? currentSession, finalMs);
       return;
     }
 
@@ -771,6 +869,9 @@ export const recorderStore = {
     pcmCapture = null;
     liveClient?.close();
     liveClient = null;
+    if (localBackupMR && localBackupMR.state !== 'inactive') localBackupMR.stop();
+    localBackupMR    = null;
+    localBackupBlobs = [];
     recorder?.release();
     recorder = null;
     set(INITIAL);

@@ -29,6 +29,11 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
+      // Enable service worker in dev so Chrome shows the install button on localhost
+      devOptions: {
+        enabled: true,
+        type: 'module',
+      },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,ico,woff2}'],
         runtimeCaching: []
@@ -40,9 +45,10 @@ export default defineConfig({
         theme_color: '#0d1526',
         background_color: '#070c1a',
         display: 'standalone',
-        orientation: 'portrait',
+        orientation: 'any',
         start_url: '/recorder',
         scope: '/',
+        categories: ['productivity', 'utilities'],
         icons: [
           {
             src: '/icon-192.png',

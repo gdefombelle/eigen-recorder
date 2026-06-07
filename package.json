@@ -15,7 +15,8 @@
     "cap:open": "npx cap open ios",
     "cap:run": "npm run build && npx cap sync ios && node scripts/restore-package-swift.mjs && npx cap run ios",
     "cap:dev": "CAPACITOR_DEV=1 npx cap sync ios && node scripts/restore-package-swift.mjs && npx cap open ios",
-    "dev:live": "npm run dev -- --host 0.0.0.0"
+    "dev:live": "npm run dev -- --host 0.0.0.0",
+    "pwa": "vite build && vite preview --host --port 5176"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.3.4",

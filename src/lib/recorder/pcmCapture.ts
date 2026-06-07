@@ -80,8 +80,11 @@ export class PcmCapture {
   private ctx:         AudioContext | null               = null;
   private workletNode: AudioWorkletNode | null           = null;
   private source:      MediaStreamAudioSourceNode | null = null;
-  private stream:      MediaStream | null                = null;
+  private _stream:     MediaStream | null                = null;
   private sink:        GainNode | null                   = null;
+
+  /** The underlying MediaStream — available after start(), null before/after. */
+  get stream(): MediaStream | null { return this._stream; }
 
   private _startEpoch  = 0;
   private _pausedMs    = 0;
@@ -97,7 +100,7 @@ export class PcmCapture {
 
   async start(): Promise<void> {
     // Mono mic — no stereo, no noise suppression/AGC for raw PCM capture
-    this.stream = await navigator.mediaDevices.getUserMedia({
+    this._stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount:      1,
         echoCancellation:  false,
@@ -132,7 +135,7 @@ export class PcmCapture {
       URL.revokeObjectURL(url);
     }
 
-    this.source      = ctx.createMediaStreamSource(this.stream);
+    this.source      = ctx.createMediaStreamSource(this._stream);
     this.workletNode = new AudioWorkletNode(ctx, 'pcm-frame-processor');
 
     // Silent sink — required in some browsers for the graph to actually process
@@ -192,8 +195,8 @@ export class PcmCapture {
     this.sink = null;
     this.ctx?.close().catch(() => {});
     this.ctx = null;
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.stream = null;
+    this._stream?.getTracks().forEach((t) => t.stop());
+    this._stream = null;
   }
 
   // ── Elapsed time (excludes paused intervals) ──────────────────────────────
