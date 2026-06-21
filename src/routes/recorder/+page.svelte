@@ -396,9 +396,9 @@
 </main>
 
 <style>
-  main { flex: 1; background: var(--ev-black); overflow-y: auto; }
+  main { flex: 1; background: var(--ev-black); overflow-y: auto; overflow-x: hidden; }
 
-  .lp { max-width: 760px; margin: 0 auto; padding: 0 var(--sp-4); }
+  .lp { max-width: 760px; margin: 0 auto; padding: 0 var(--sp-4); overflow-x: hidden; }
 
   /* ─── Hero ─── */
   .hero {
@@ -415,6 +415,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: var(--sp-2);
     margin-bottom: var(--sp-5);
     padding-bottom: var(--sp-5);
     border-bottom: 1px solid var(--ev-border);
@@ -423,12 +424,19 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
     font-family: var(--font-display);
     font-weight: 700;
     font-size: 0.9rem;
     letter-spacing: 0.12em;
     color: var(--ev-blue);
   }
+  .ev-wordmark span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hero-topbar :global(.conn-status) { flex-shrink: 0; }
 
   .hero-mark {
     position: absolute;
@@ -472,6 +480,7 @@
     line-height: 1.12;
     margin: 0 0 var(--sp-4);
     color: var(--ev-text);
+    overflow-wrap: break-word;
   }
   .accent { color: var(--ev-blue); }
 
@@ -480,6 +489,7 @@
     color: var(--ev-text-dim);
     line-height: 1.7;
     margin: 0 0 var(--sp-5);
+    overflow-wrap: break-word;
   }
   .ev-inline-link {
     color: var(--ev-blue);

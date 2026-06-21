@@ -29,6 +29,7 @@ import { chunkQueue } from './chunkQueue';
 import { mockRecorderApi } from './mockRecorderApi';
 import { generateLocalId, getBrowserName } from './utils';
 import { isNative } from '$lib/platform';
+import { getAudioEngine } from './audioEngine';
 import {
   createKnowledgeSession,
   syncKnowledgeSessionFromRecorder,
@@ -534,9 +535,10 @@ export const recorderStore = {
   async requestMicrophone(): Promise<void> {
     transition('mic_permission_required');
 
-    const r = isNative() ? new NativeAudioRecorder() : new AudioRecorder();
+    const useNative = isNative() && getAudioEngine() === 'native';
+    const r = useNative ? new NativeAudioRecorder() : new AudioRecorder();
 
-    if (!isNative() && (typeof navigator === 'undefined' || !navigator.mediaDevices)) {
+    if (!useNative && (typeof navigator === 'undefined' || !navigator.mediaDevices)) {
       update((s) => ({ ...s, state: 'mic_permission_denied', errorMessage: 'Microphone not available in this browser.' }));
       return;
     }
@@ -648,7 +650,8 @@ export const recorderStore = {
 
     // ── LOCAL / OFFLINE MODE ───────────────────────────────────────────────
 
-    if (isNative()) {
+    const useNativeEngine = isNative() && getAudioEngine() === 'native';
+    if (useNativeEngine) {
       const native = new NativeAudioRecorder();
       native.onChunk = handleChunk;
       native.onError = (err) => setError(err.message);

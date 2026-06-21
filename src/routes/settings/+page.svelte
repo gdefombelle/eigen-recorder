@@ -8,6 +8,8 @@
   import { offlineStorage } from '$lib/recorder/offlineStorage';
   import { getSupportedMimeType, isSafariLimited } from '$lib/recorder/audioRecorder';
   import { getBrowserName, isIOS, formatBytes } from '$lib/recorder/utils';
+  import { audioEngineStore, setAudioEngine } from '$lib/recorder/audioEngine';
+  import { isNative } from '$lib/platform';
 
   $: _auth  = $authStore;
   $: _lang  = $langStore;
@@ -33,6 +35,7 @@
   const BROWSER    = typeof navigator !== 'undefined' ? getBrowserName() : '—';
   const ON_IOS     = typeof navigator !== 'undefined' ? isIOS() : false;
   const SAFARI_LTD = typeof navigator !== 'undefined' ? isSafariLimited() : false;
+  const IS_NATIVE  = typeof window    !== 'undefined' ? isNative() : false;
 
   onMount(async () => {
     urlInput     = isProxyMode() ? '' : getServerUrl();
@@ -196,6 +199,36 @@
         </div>
         <p class="s-help">{t().settings.chunkDurationHelp}</p>
       </section>
+
+      <!-- ── Audio engine (iOS native only) ── -->
+      {#if IS_NATIVE}
+        <section class="s-section">
+          <p class="s-eyebrow">{t().settings.audioEngineSection}</p>
+          <div class="engine-row">
+            <button
+              class="engine-btn"
+              class:active={$audioEngineStore === 'native'}
+              on:click={() => setAudioEngine('native')}
+            >
+              <span class="engine-name">{t().settings.audioEngineNative}</span>
+              <span class="engine-sub">AVAudioEngine · stéréo</span>
+            </button>
+            <button
+              class="engine-btn"
+              class:active={$audioEngineStore === 'web'}
+              on:click={() => setAudioEngine('web')}
+            >
+              <span class="engine-name">{t().settings.audioEngineWeb}</span>
+              <span class="engine-sub">MediaRecorder</span>
+            </button>
+          </div>
+          <p class="s-help">
+            {$audioEngineStore === 'native'
+              ? t().settings.audioEngineNativeHelp
+              : t().settings.audioEngineWebHelp}
+          </p>
+        </section>
+      {/if}
 
       <!-- ── Server URL ── -->
       <section class="s-section">
@@ -445,6 +478,28 @@
     font-family: var(--font-sans);
   }
   .lang-btn.active { border-color: var(--ev-blue); color: var(--ev-blue); background: var(--ev-blue-bg); }
+
+  /* Audio engine toggle */
+  .engine-row { display: flex; gap: var(--sp-2); }
+  .engine-btn {
+    flex: 1;
+    padding: 10px 12px;
+    background: var(--ev-card);
+    border: 1px solid var(--ev-border);
+    border-radius: var(--radius-md);
+    color: var(--ev-text-dim);
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: all 120ms;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    text-align: center;
+  }
+  .engine-btn.active { border-color: var(--ev-blue); color: var(--ev-blue); background: var(--ev-blue-bg); }
+  .engine-name { font-size: 0.82rem; font-weight: 600; }
+  .engine-sub  { font-size: 0.67rem; color: inherit; opacity: 0.65; }
 
   /* Proxy badge */
   .s-proxy-badge {
