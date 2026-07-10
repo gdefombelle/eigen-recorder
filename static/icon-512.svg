@@ -9,6 +9,8 @@
   <line x1="400" y1="256" x2="482" y2="256" stroke="#9ad1ff" stroke-width="11" opacity=".55"/>
   <line x1="256" y1="30"  x2="256" y2="112" stroke="#9ad1ff" stroke-width="11" opacity=".55"/>
   <line x1="256" y1="400" x2="256" y2="482" stroke="#9ad1ff" stroke-width="11" opacity=".55"/>
-  <!-- REC dot — rouge -->
-  <circle cx="256" cy="256" r="44" fill="#e5484d"/>
+  <!-- 3 meeting dots — participants -->
+  <circle cx="256" cy="219" r="18" fill="#4ade80"/>
+  <circle cx="224" cy="274" r="18" fill="#4ade80"/>
+  <circle cx="288" cy="274" r="18" fill="#4ade80"/>
 </svg>

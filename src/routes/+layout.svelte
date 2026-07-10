@@ -7,6 +7,16 @@
   import { loadLang, langStore, t } from '$lib/i18n/index';
   import { page } from '$app/stores';
 
+  // vite-plugin-pwa does not auto-inject the manifest <link> or the SW
+  // registration script into SvelteKit's output (its HTML-transform hook
+  // never runs on adapter-static's prerendered app.html) — both must be
+  // wired up manually here, or Chrome never sees a valid PWA to install.
+  import { pwaInfo } from 'virtual:pwa-info';
+  import { useRegisterSW } from 'virtual:pwa-register/svelte';
+
+  const manifestLinkTag = pwaInfo?.webManifest?.linkTag ?? '';
+  useRegisterSW({ immediate: true });
+
   onMount(() => {
     loadConfig();
     initAuth();
@@ -29,6 +39,10 @@
     currentPath.startsWith('/recorder/new') ||
     currentPath.startsWith('/auth');
 </script>
+
+<svelte:head>
+  {@html manifestLinkTag}
+</svelte:head>
 
 <div class="app-shell">
   <slot />

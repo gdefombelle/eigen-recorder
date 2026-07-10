@@ -109,8 +109,8 @@
 </script>
 
 <svelte:head>
-  <title>Eigen Recorder — {isFr ? 'Enregistreur audio offline-first' : 'Offline-first audio recorder'}</title>
-  <meta name="description" content="{isFr ? 'Enregistreur audio intelligent pour Eigen Meeting. Offline-first, sync EigenVertex.' : 'Intelligent audio recorder for Eigen Meeting. Offline-first, EigenVertex sync.'}" />
+  <title>Eigen Meeting — {isFr ? 'Enregistreur audio offline-first' : 'Offline-first audio recorder'}</title>
+  <meta name="description" content="{isFr ? 'Capture audio intelligente pour Eigen Meeting. Offline-first, sync EigenVertex.' : 'Intelligent audio capture for Eigen Meeting. Offline-first, EigenVertex sync.'}" />
 </svelte:head>
 
 <main>
@@ -122,7 +122,7 @@
 
       <div class="hero-topbar">
         <div class="ev-wordmark">
-          <!-- Eigen Recorder logo — losange EigenVertex + point rouge REC -->
+          <!-- Eigen Meeting logo — EigenVertex diamond + 3 meeting dots -->
           <svg width="24" height="24" viewBox="0 0 28 28" fill="none" aria-hidden="true">
             <polygon points="14,1.7 26.3,14 14,26.3 1.7,14" stroke="#9ad1ff" stroke-width="1.5"/>
             <polygon points="14,6.2 21.8,14 14,21.8 6.2,14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
@@ -130,9 +130,11 @@
             <line x1="21.8" y1="14" x2="26.3" y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
             <line x1="14"   y1="1.7" x2="14"  y2="6.2" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
             <line x1="14"   y1="21.8" x2="14" y2="26.3" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
-            <circle cx="14" cy="14" r="2.4" fill="#e5484d"/>
+            <circle cx="14"    cy="12"  r="1" fill="#4ade80"/>
+            <circle cx="12.27" cy="15"  r="1" fill="#4ade80"/>
+            <circle cx="15.73" cy="15"  r="1" fill="#4ade80"/>
           </svg>
-          <span>EIGEN RECORDER</span>
+          <span>EIGEN MEETING</span>
         </div>
         <ConnectionStatus online={store.isOnline} />
       </div>

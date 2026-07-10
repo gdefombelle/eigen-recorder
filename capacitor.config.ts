@@ -14,7 +14,7 @@ const DEV_PORT = 5173;
 
 const config: CapacitorConfig = {
   appId:   'com.eigenvertex.recorder',
-  appName: 'Eigen Recorder',
+  appName: 'Eigen Meeting',
   webDir:  'build',
 
   server: DEV

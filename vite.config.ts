@@ -39,9 +39,9 @@ export default defineConfig({
         runtimeCaching: []
       },
       manifest: {
-        name: 'Eigen Recorder',
-        short_name: 'EigenRec',
-        description: 'Eigen Meeting Audio Recorder — Offline-First',
+        name: 'Eigen Meeting',
+        short_name: 'EigenMtg',
+        description: 'Eigen Meeting — Offline-First Audio Capture',
         theme_color: '#0d1526',
         background_color: '#070c1a',
         display: 'standalone',

@@ -1,20 +1,21 @@
 // Geolocation abstraction.
-// - Native (Capacitor): uses @capacitor/geolocation → proper iOS permission prompt
-// - Web: uses navigator.geolocation
+// - Native (Capacitor iOS): uses @capacitor/geolocation — CLLocationManager with proper
+//   "When In Use" dialog. Requires NSLocationWhenInUseUsageDescription in Info.plist.
+// - Web / PWA: uses navigator.geolocation directly.
 
 import { isNative } from '$lib/platform';
-import { EigenAudio } from '$lib/plugins/eigenAudio';
+import { Geolocation } from '@capacitor/geolocation';
 
 export interface GeoPosition {
-  latitude: number;
+  latitude:  number;
   longitude: number;
-  accuracy: number;
+  accuracy:  number;
   timestamp: number;
 }
 
 export interface GeolocationResult {
   position: GeoPosition | null;
-  error: string | null;
+  error:    string | null;
 }
 
 export async function getCurrentPosition(): Promise<GeolocationResult> {
@@ -26,14 +27,22 @@ export async function getCurrentPosition(): Promise<GeolocationResult> {
 
 async function getNativePosition(): Promise<GeolocationResult> {
   try {
-    // Request permission via EigenAudioPlugin (uses CLLocationManager — proper "While Using" dialog)
-    const perm = await EigenAudio.requestLocationPermission();
-    if (!perm.granted) {
+    const perm = await Geolocation.requestPermissions();
+    if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
       return { position: null, error: 'Location permission denied' };
     }
-    const loc = await EigenAudio.getLocation();
+    const pos = await Geolocation.getCurrentPosition({
+      enableHighAccuracy: false,
+      timeout: 10000,
+      maximumAge: 300_000,
+    });
     return {
-      position: { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy, timestamp: loc.timestamp },
+      position: {
+        latitude:  pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy:  pos.coords.accuracy,
+        timestamp: pos.timestamp,
+      },
       error: null,
     };
   } catch (err) {
@@ -57,7 +66,7 @@ function getWebPosition(): Promise<GeolocationResult> {
         error: null,
       }),
       (err) => resolve({ position: null, error: err.message }),
-      { enableHighAccuracy: false, timeout: 14000, maximumAge: 300000 }
+      { enableHighAccuracy: false, timeout: 14000, maximumAge: 300_000 },
     );
   });
 }

@@ -31,7 +31,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 options: [.allowBluetooth]
             )
         } catch {
-            print("[EigenRecorder] AVAudioSession init error: \(error)")
+            print("[EigenMeeting] AVAudioSession init error: \(error)")
         }
 
         return true

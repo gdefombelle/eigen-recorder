@@ -1,4 +1,4 @@
-// ===== EIGEN RECORDER — TYPES =====
+// ===== EIGEN MEETING — TYPES =====
 
 export type KnowledgeSessionType =
   | 'project_meeting'

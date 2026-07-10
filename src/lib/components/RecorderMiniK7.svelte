@@ -100,9 +100,11 @@
         <line x1="21.8" y1="14" x2="26.3" y2="14" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
         <line x1="14"   y1="1.7" x2="14"  y2="6.2" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
         <line x1="14"   y1="21.8" x2="14" y2="26.3" stroke="#9ad1ff" stroke-width="0.9" opacity=".55"/>
-        <circle cx="14" cy="14" r="2.4" fill="#e5484d"/>
+        <circle cx="14"    cy="12"  r="1" fill="#4ade80"/>
+        <circle cx="12.27" cy="15"  r="1" fill="#4ade80"/>
+        <circle cx="15.73" cy="15"  r="1" fill="#4ade80"/>
       </svg>
-      <span class="brand-name">EIGEN RECORDER</span>
+      <span class="brand-name">EIGEN MEETING</span>
     </div>
 
     <div class="conn-badge" class:online={store.isOnline} class:offline={!store.isOnline}>

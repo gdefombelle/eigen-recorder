@@ -33,7 +33,7 @@ export async function request<T>(
   // Guard: path must NOT include /v1 — getApiBase() already provides it.
   // A path like '/v1/knowledge-sessions/...' would produce /api/v1/v1/... in dev.
   if (import.meta.env.DEV && path.startsWith('/v1/')) {
-    console.error(`[EigenRecorder] request() path starts with /v1 — double prefix! Fix: remove /v1 from "${path}"`);
+    console.error(`[EigenMeeting] request() path starts with /v1 — double prefix! Fix: remove /v1 from "${path}"`);
   }
 
   let res: Response;

@@ -7,7 +7,7 @@ import type {
   OfflineManifest,
 } from './types';
 
-interface EigenRecorderDB extends DBSchema {
+interface EigenMeetingDB extends DBSchema {
   sessions: {
     key: string;
     value: LocalKnowledgeSession;
@@ -27,12 +27,12 @@ interface EigenRecorderDB extends DBSchema {
 const DB_NAME    = 'eigen-recorder';
 const DB_VERSION = 1;
 
-let _db: IDBPDatabase<EigenRecorderDB> | null = null;
+let _db: IDBPDatabase<EigenMeetingDB> | null = null;
 
-async function getDb(): Promise<IDBPDatabase<EigenRecorderDB>> {
+async function getDb(): Promise<IDBPDatabase<EigenMeetingDB>> {
   if (_db) return _db;
 
-  _db = await openDB<EigenRecorderDB>(DB_NAME, DB_VERSION, {
+  _db = await openDB<EigenMeetingDB>(DB_NAME, DB_VERSION, {
     upgrade(db) {
       const sessions = db.createObjectStore('sessions', { keyPath: 'local_session_id' });
       sessions.createIndex('by-status', 'status');
@@ -43,7 +43,7 @@ async function getDb(): Promise<IDBPDatabase<EigenRecorderDB>> {
       db.createObjectStore('chunks_data', { keyPath: 'local_chunk_id' });
     },
     blocked() {
-      console.warn('[EigenRecorder] IndexedDB blocked — another tab may have an older version open.');
+      console.warn('[EigenMeeting] IndexedDB blocked — another tab may have an older version open.');
     },
     blocking() {
       _db?.close();

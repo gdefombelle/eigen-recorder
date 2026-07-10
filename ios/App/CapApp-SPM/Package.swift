@@ -1,8 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-// LOCAL PATH — managed by scripts/restore-package-swift.mjs
-// cap sync overwrites this; npm run cap:sync restores it automatically.
+// DO NOT MODIFY THIS FILE - managed by Capacitor CLI commands
 let package = Package(
     name: "CapApp-SPM",
     platforms: [.iOS(.v15)],
@@ -12,15 +11,16 @@ let package = Package(
             targets: ["CapApp-SPM"])
     ],
     dependencies: [
-        .package(name: "capacitor-swift-pm",
-                 path: "../../../.capacitor-spm/capacitor-swift-pm"),
+        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.3.4"),
+        .package(name: "CapacitorGeolocation", path: "../../../node_modules/@capacitor/geolocation")
     ],
     targets: [
         .target(
             name: "CapApp-SPM",
             dependencies: [
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
-                .product(name: "Cordova",   package: "capacitor-swift-pm")
+                .product(name: "Cordova", package: "capacitor-swift-pm"),
+                .product(name: "CapacitorGeolocation", package: "CapacitorGeolocation")
             ]
         )
     ]
