@@ -15,6 +15,7 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "requestLocationPermission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getLocation",               returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setKeepAwake",              returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestPermission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startRecording",    returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pauseRecording",    returnType: CAPPluginReturnPromise),
@@ -71,6 +72,16 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("Location timeout")
             }
         }
+    }
+
+    // ── Screen keep-awake (fallback for iOS < 16.4 where Wake Lock API is unavailable) ──
+
+    @objc func setKeepAwake(_ call: CAPPluginCall) {
+        let enabled = call.getBool("enabled") ?? false
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = enabled
+        }
+        call.resolve()
     }
 
     // ── State ──────────────────────────────────────────────────────────────

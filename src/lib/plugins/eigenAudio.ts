@@ -30,6 +30,7 @@ export interface EigenAudioStopResult {
 export interface EigenAudioPlugin {
   requestLocationPermission(): Promise<{ granted: boolean }>;
   getLocation(): Promise<{ latitude: number; longitude: number; accuracy: number; timestamp: number }>;
+  setKeepAwake(options: { enabled: boolean }): Promise<void>;
   requestPermission(): Promise<{ granted: boolean }>;
   startRecording(options: EigenAudioStartOptions): Promise<void>;
   pauseRecording(): Promise<void>;

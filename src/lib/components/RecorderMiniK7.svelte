@@ -2,6 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
+  import { acquireWakeLock, releaseWakeLock, reacquireIfNeeded } from '$lib/utils/wakeLock';
   import { recorderStore } from '$lib/recorder/recorderStore';
   import RecordingTimer from './RecordingTimer.svelte';
   import MicLevelMeter from './MicLevelMeter.svelte';
@@ -36,8 +37,20 @@
 
   let loadError = $state('');
 
+  // Keep screen on while recording or paused.
+  // Browser releases the lock when the app goes to background; re-acquire on return.
+  $: shouldKeepAwake = isRecording || isPaused;
+  $: shouldKeepAwake ? acquireWakeLock() : releaseWakeLock();
+
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+      reacquireIfNeeded(shouldKeepAwake);
+    }
+  }
+
   onMount(async () => {
     recorderStore.init();
+    document.addEventListener('visibilitychange', onVisibilityChange);
     try {
       await recorderStore.loadSession(localSessionId);
     } catch (e) {
@@ -46,11 +59,8 @@
   });
 
   onDestroy(() => {
-    // Only reset if not actively recording — allow background recording
-    const s = $recorderStore.state;
-    if (s !== 'recording_offline' && s !== 'paused') {
-      // Don't reset on navigate away if recording — user might come back
-    }
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    releaseWakeLock();
   });
 
   async function handleRec() {

@@ -7,6 +7,7 @@
 CAP_PLUGIN(EigenAudioPlugin, "EigenAudioPlugin",
     CAP_PLUGIN_METHOD(requestLocationPermission, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(getLocation,               CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(setKeepAwake,              CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(requestPermission, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(startRecording,    CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(pauseRecording,    CAPPluginReturnPromise);
