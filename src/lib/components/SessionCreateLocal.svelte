@@ -1,28 +1,27 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import { goto } from '$app/navigation';
   import { recorderStore } from '$lib/recorder/recorderStore';
   import SessionMetadataPrompt from './SessionMetadataPrompt.svelte';
   import type { CreateSessionParams } from '$lib/recorder/types';
 
-  const dispatch = createEventDispatcher<{ cancel: void }>();
+  let { oncancel }: { oncancel?: () => void } = $props();
 
-  $: isOnline = $recorderStore.isOnline;
+  let isOnline = $derived($recorderStore.isOnline);
 
-  let loading = false;
-  let error   = '';
+  let loading = $state(false);
+  let error   = $state('');
 
   // Allow retrying in offline mode if backend failed
-  let lastParams: CreateSessionParams | null = null;
-  let backendError = false;
+  let lastParams: CreateSessionParams | null = $state(null);
+  let backendError = $state(false);
 
-  async function handleSubmit(ev: CustomEvent<CreateSessionParams>) {
+  async function handleSubmit(params: CreateSessionParams) {
     loading     = true;
     error       = '';
     backendError = false;
-    lastParams   = ev.detail;
+    lastParams   = params;
     try {
-      const id = await recorderStore.createSession(ev.detail);
+      const id = await recorderStore.createSession(params);
       await goto(`/recorder/session/${id}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to create session';
@@ -56,7 +55,7 @@
 
   <!-- ── Branded nav bar ── -->
   <nav class="page-nav">
-    <button class="back-btn" on:click={() => dispatch('cancel')}>
+    <button class="back-btn" onclick={() => oncancel?.()}>
       <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M9 3L4 7.5 9 12"/>
       </svg>
@@ -94,10 +93,10 @@
       {backendError ? '⚠ EigenVertex unreachable.' : error}
       {#if backendError}
         <div class="error-actions">
-          <button type="button" class="btn btn-sm btn-primary" on:click={continueOffline} disabled={loading}>
+          <button type="button" class="btn btn-sm btn-primary" onclick={continueOffline} disabled={loading}>
             📱 Continue offline
           </button>
-          <button type="button" class="btn btn-sm btn-ghost" on:click={() => { error = ''; backendError = false; }}>
+          <button type="button" class="btn btn-sm btn-ghost" onclick={() => { error = ''; backendError = false; }}>
             Retry
           </button>
         </div>
@@ -107,8 +106,8 @@
 
   <SessionMetadataPrompt
     {loading}
-    on:submit={handleSubmit}
-    on:cancel={() => dispatch('cancel')}
+    onsubmit={handleSubmit}
+    oncancel={() => oncancel?.()}
   />
 </div>
 

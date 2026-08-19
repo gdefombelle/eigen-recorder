@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import RecorderMiniK7 from '$lib/components/RecorderMiniK7.svelte';
 
-  $: localSessionId = $page.params.localSessionId ?? '';
+  let localSessionId = $derived($page.params.localSessionId ?? '');
 </script>
 
 <svelte:head>

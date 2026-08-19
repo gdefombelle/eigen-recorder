@@ -1,16 +1,15 @@
 <script lang="ts">
   // SessionJoin — placeholder for future backend-joined sessions.
   // Will accept a session code / QR scan to join a live room from eigenvertex-app.
-  import { createEventDispatcher } from 'svelte';
 
-  const dispatch = createEventDispatcher<{ cancel: void }>();
+  let { oncancel }: { oncancel?: () => void } = $props();
 
-  let code = '';
+  let code = $state('');
 </script>
 
 <div class="join-panel animate-slide-up">
   <div class="join-header">
-    <button class="btn btn-ghost btn-sm" on:click={() => dispatch('cancel')}>← Back</button>
+    <button class="btn btn-ghost btn-sm" onclick={() => oncancel?.()}>← Back</button>
     <h2>Join Session</h2>
   </div>
 

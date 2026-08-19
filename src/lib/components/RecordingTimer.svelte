@@ -1,16 +1,25 @@
 <script lang="ts">
   import { formatDuration } from '$lib/recorder/utils';
 
-  export let elapsedMs: number = 0;
-  export let recording: boolean = false;
-  export let paused: boolean = false;
+  let { elapsedMs = 0, recording = false, paused = false }: {
+    elapsedMs?: number;
+    recording?: boolean;
+    paused?: boolean;
+  } = $props();
 
-  $: display = formatDuration(elapsedMs);
-  $: [hhmm, tenths] = display.includes(':')
-    ? display.lastIndexOf('.') !== -1
-      ? [display.slice(0, display.lastIndexOf('.')), display.slice(display.lastIndexOf('.'))]
-      : [display, '']
-    : [display, ''];
+  let display = $derived(formatDuration(elapsedMs));
+  let timerParts = $derived.by(() => {
+    const d = display;
+    if (d.includes(':')) {
+      const li = d.lastIndexOf('.');
+      return li !== -1
+        ? { hhmm: d.slice(0, li), tenths: d.slice(li) }
+        : { hhmm: d, tenths: '' };
+    }
+    return { hhmm: d, tenths: '' };
+  });
+  let hhmm   = $derived(timerParts.hhmm);
+  let tenths = $derived(timerParts.tenths);
 </script>
 
 <div class="timer" class:recording class:paused>

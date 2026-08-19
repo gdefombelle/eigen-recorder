@@ -7,11 +7,11 @@
   import { formatDuration, formatBytes, formatDate } from '$lib/recorder/utils';
   import ShareAudioButton from './ShareAudioButton.svelte';
 
-  export let compact = false;
+  let { compact = false }: { compact?: boolean } = $props();
 
-  let sessions: LocalKnowledgeSession[] = [];
-  let statsBySession: Record<string, { chunkCount: number; totalBytes: number }> = {};
-  let loading = true;
+  let sessions: LocalKnowledgeSession[] = $state([]);
+  let statsBySession: Record<string, { chunkCount: number; totalBytes: number }> = $state({});
+  let loading = $state(true);
 
   async function load() {
     loading = true;
@@ -72,8 +72,8 @@
           class="session-card"
           role="button"
           tabindex="0"
-          on:click={() => goto(`/recorder/session/${session.local_session_id}`)}
-          on:keydown={(e) => e.key === 'Enter' && goto(`/recorder/session/${session.local_session_id}`)}
+          onclick={() => goto(`/recorder/session/${session.local_session_id}`)}
+          onkeydown={(e) => e.key === 'Enter' && goto(`/recorder/session/${session.local_session_id}`)}
         >
           <!-- Top row: type + status badges -->
           <div class="card-top">
@@ -106,7 +106,7 @@
 
           <!-- Actions (stop propagation so row click doesn't fire) -->
           {#if !compact}
-            <div class="card-actions" role="none" on:click|stopPropagation>
+            <div class="card-actions" role="none" onclick={(e) => e.stopPropagation()}>
               {#if stats.chunkCount > 0}
                 <ShareAudioButton
                   sessionId={session.local_session_id}
@@ -116,7 +116,7 @@
               {/if}
               <button
                 class="del-btn"
-                on:click={(e) => del(session, e)}
+                onclick={(e) => del(session, e)}
                 title="Delete session"
                 aria-label="Delete"
               >

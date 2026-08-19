@@ -8,7 +8,7 @@
   let errorMsg = '';
   let sent     = false;
 
-  $: _lang = $langStore;
+  // langStore accessed reactively in template — no explicit $: needed
 
   async function submit() {
     if (!email.trim()) return;
@@ -36,7 +36,7 @@
   <div class="auth-card">
 
     <button type="button" class="auth-back-btn"
-      on:click={() => history.length > 1 ? history.back() : goto('/auth')}>
+      onclick={() => history.length > 1 ? history.back() : goto('/auth')}>
       ← Retour
     </button>
 
@@ -62,7 +62,7 @@
     {:else}
       <p class="auth-desc">{t().auth.forgotDesc}</p>
 
-      <form class="auth-form" on:submit|preventDefault={submit}>
+      <form class="auth-form" onsubmit={(e) => { e.preventDefault(); submit(); }}>
         <div class="auth-field">
           <label for="forgot-email">{t().auth.email}</label>
           <input
@@ -86,7 +86,7 @@
       </form>
     {/if}
 
-    <button class="auth-back" on:click={() => goto('/auth')}>
+    <button class="auth-back" onclick={() => goto('/auth')}>
       {t().auth.backToLogin}
     </button>
   </div>

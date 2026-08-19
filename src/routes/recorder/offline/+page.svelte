@@ -7,10 +7,10 @@
   import OfflineSessionsList from '$lib/components/OfflineSessionsList.svelte';
   import { formatBytes } from '$lib/recorder/utils';
 
-  $: store = $recorderStore;
+  let store = $derived($recorderStore);
 
-  let totalBytes = 0;
-  let sessionCount = 0;
+  let totalBytes = $state(0);
+  let sessionCount = $state(0);
 
   onMount(async () => {
     recorderStore.init();
@@ -24,7 +24,7 @@
   <div class="page">
     <!-- ── Branded nav bar ── -->
     <nav class="page-nav">
-      <button class="back-btn" on:click={() => goto('/recorder')}>
+      <button class="back-btn" onclick={() => goto('/recorder')}>
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M9 3L4 7.5 9 12"/>
         </svg>

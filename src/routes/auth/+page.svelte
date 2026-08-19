@@ -23,7 +23,7 @@
   let errorMsg      = '';
   let success       = '';
 
-  $: _lang = $langStore; // reactive language
+  // langStore accessed reactively in template
 
   function nextUrl(): string {
     return $page.url.searchParams.get('next') ?? '/recorder';
@@ -33,7 +33,9 @@
     if (isAuthenticated()) goto(nextUrl(), { replaceState: true });
   });
 
-  $: if ($authStore && isAuthenticated() && !busy) goto(nextUrl(), { replaceState: true });
+  $effect(() => {
+    if ($authStore && isAuthenticated() && !busy) goto(nextUrl(), { replaceState: true });
+  });
 
   function switchTab(newTab: Tab) {
     tab = newTab; errorMsg = ''; success = '';
@@ -121,8 +123,8 @@
     window.location.href = getAppleLoginUrl();
   }
 
-  $: onIOS    = isIOSDevice(); // userAgent-based: true on any iPhone/iPad (web + native)
-  $: onNative = isNative();   // true only inside Capacitor WebView
+  let onIOS    = $derived(isIOSDevice()); // userAgent-based: true on any iPhone/iPad (web + native)
+  let onNative = $derived(isNative());   // true only inside Capacitor WebView
 </script>
 
 <svelte:head><title>{t().auth.pageTitle} — EIGENVERTEX</title></svelte:head>
@@ -134,7 +136,7 @@
     <button
       type="button"
       class="auth-back-btn"
-      on:click={() => history.length > 1 ? history.back() : goto('/recorder')}
+      onclick={() => history.length > 1 ? history.back() : goto('/recorder')}
     >
       ← {$langStore === 'fr' ? 'Retour' : 'Back'}
     </button>
@@ -157,17 +159,17 @@
       <button
         class="auth-tab"
         class:active={tab === 'login'}
-        on:click={() => switchTab('login')}
+        onclick={() => switchTab('login')}
       >{t().auth.loginTab}</button>
       <button
         class="auth-tab"
         class:active={tab === 'register'}
-        on:click={() => switchTab('register')}
+        onclick={() => switchTab('register')}
       >{t().auth.registerTab}</button>
     </div>
 
     <!-- Form -->
-    <form class="auth-form" on:submit|preventDefault={submit}>
+    <form class="auth-form" onsubmit={(e) => { e.preventDefault(); submit(); }}>
       <div class="auth-field">
         <label for="auth-email">{t().auth.email}</label>
         <input
@@ -196,7 +198,7 @@
           <button
             type="button"
             class="auth-forgot"
-            on:click={() => goto('/auth/forgot')}
+            onclick={() => goto('/auth/forgot')}
           >{t().auth.forgotPassword}</button>
         {/if}
       </div>
@@ -221,7 +223,7 @@
     <div class="auth-divider"><span>{t().auth.or}</span></div>
 
     <!-- Google -->
-    <button class="auth-google" on:click={loginWithGoogle} disabled={busy}>
+    <button class="auth-google" onclick={loginWithGoogle} disabled={busy}>
       <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
         <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.16 7.09-10.36 7.09-17.65z"/>
         <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
@@ -233,7 +235,7 @@
 
     <!-- Apple — tout appareil iOS (guideline 4.8) : plugin natif Capacitor ou redirect web -->
     {#if onIOS}
-      <button class="auth-apple" on:click={loginWithApple} disabled={busy}>
+      <button class="auth-apple" onclick={loginWithApple} disabled={busy}>
         <svg width="18" height="18" viewBox="0 0 814 1000" aria-hidden="true" fill="currentColor">
           <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-57.8-155.5-127.4C46 411.3 0 226.8 0 152.7c0-101.5 66.2-155.5 130.5-155.5 50 0 91.7 32.8 121.9 32.8 28.7 0 75.7-34.9 132.6-34.9 21.4.3 123.7 7.7 175.5 83.2zm-470-260.8c-18.5-24.7-49.2-42.6-84.3-42.6-3.8 0-7.7.3-11.5.9 1.2 38.4 18.1 76.3 44.2 103.1 24.1 24.7 56.3 40.5 89.3 40.5 3.2 0 6.4-.3 9.6-.6-1.1-37.8-19.1-74-47.3-101.3z"/>
         </svg>
@@ -244,11 +246,11 @@
     <!-- Switch -->
     <p class="auth-switch">
       {#if tab === 'login'}
-        <button type="button" class="auth-switch-btn" on:click={() => switchTab('register')}>
+        <button type="button" class="auth-switch-btn" onclick={() => switchTab('register')}>
           {t().auth.registerLink}
         </button>
       {:else}
-        <button type="button" class="auth-switch-btn" on:click={() => switchTab('login')}>
+        <button type="button" class="auth-switch-btn" onclick={() => switchTab('login')}>
           {t().auth.loginLink}
         </button>
       {/if}

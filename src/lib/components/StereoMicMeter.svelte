@@ -1,16 +1,20 @@
 <!-- StereoMicMeter — double vumètre L/R avec labels adaptatifs selon l'orientation -->
 <script lang="ts">
-  export let levelL: number = 0;   // 0..1 — canal gauche / micro bas
-  export let levelR: number = 0;   // 0..1 — canal droit / micro haut
-  export let active: boolean = false;
-  export let stereo: boolean = false; // true = vraie stéréo détectée
+  import { onMount } from 'svelte';
+
+  let { levelL = 0, levelR = 0, active = false, stereo = false }: {
+    levelL?: number;
+    levelR?: number;
+    active?: boolean;
+    stereo?: boolean;
+  } = $props();
 
   // Orientation de l'iPhone
-  let isLandscape = false;
-  let labelsL = 'BAS';
-  let labelsR = 'HAUT';
-  let tooltipL = 'Micro bas — voix directe';
-  let tooltipR = 'Micro haut — ambiance salle';
+  let isLandscape = $state(false);
+  let labelsL = $state('BAS');
+  let labelsR = $state('HAUT');
+  let tooltipL = $state('Micro bas — voix directe');
+  let tooltipR = $state('Micro haut — ambiance salle');
 
   function detectLandscape(): boolean {
     // screen.orientation est plus fiable que innerWidth/innerHeight sur iOS Capacitor
@@ -31,7 +35,6 @@
     }
   }
 
-  import { onMount } from 'svelte';
   onMount(() => {
     updateOrientation();
     // orientationchange se déclenche sur iOS quand le device pivote
@@ -47,11 +50,11 @@
   });
 
   const BARS = 18;
-  $: filledL = Math.round(levelL * BARS);
-  $: filledR = Math.round(levelR * BARS);
+  let filledL = $derived(Math.round(levelL * BARS));
+  let filledR = $derived(Math.round(levelR * BARS));
 
   // Les deux canaux sont identiques → signal mono
-  $: isMono = !stereo || Math.abs(levelL - levelR) < 0.01;
+  let isMono = $derived(!stereo || Math.abs(levelL - levelR) < 0.01);
 </script>
 
 <div class="stereo-meter" class:active>

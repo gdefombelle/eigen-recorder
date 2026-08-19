@@ -2,15 +2,17 @@
   import type { AudioChunkMetadata } from '$lib/recorder/types';
   import { formatBytes } from '$lib/recorder/utils';
 
-  export let chunks: AudioChunkMetadata[];
-  export let totalSizeBytes: number;
-  export let state: string;
-  export let onMockUpload: (() => void) | null = null;
+  let { chunks, totalSizeBytes, state, onMockUpload = null }: {
+    chunks: AudioChunkMetadata[];
+    totalSizeBytes: number;
+    state: string;
+    onMockUpload?: (() => void) | null;
+  } = $props();
 
-  $: uploaded = chunks.filter((c) => c.status === 'uploaded').length;
-  $: pending  = chunks.filter((c) => c.status === 'saved').length;
-  $: isSynced = state === 'mock_synced';
-  $: isUploading = state === 'mock_uploading';
+  let uploaded = $derived(chunks.filter((c) => c.status === 'uploaded').length);
+  let pending  = $derived(chunks.filter((c) => c.status === 'saved').length);
+  let isSynced = $derived(state === 'mock_synced');
+  let isUploading = $derived(state === 'mock_uploading');
 </script>
 
 <div class="queue-status">
@@ -46,7 +48,7 @@
       <span class="warn-icon">⚠</span>
       <span>{pending} chunk{pending > 1 ? 's' : ''} not synced yet</span>
       {#if onMockUpload}
-        <button class="btn btn-sm btn-ghost" on:click={onMockUpload}>
+        <button class="btn btn-sm btn-ghost" onclick={onMockUpload}>
           Sync to EigenVertex
         </button>
       {/if}

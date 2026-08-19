@@ -16,27 +16,25 @@
   import SyncModeToggle from './SyncModeToggle.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
 
-  export let localSessionId: string;
+  let { localSessionId }: { localSessionId: string } = $props();
 
-  $: store = $recorderStore;
-  $: session = store.currentSession;
-  $: isRecording = store.state === 'recording_offline';
-  $: isPaused    = store.state === 'paused';
-  $: isStopped   = store.state === 'stopped_local' || store.state === 'mock_synced';
-  $: isStopping  = store.state === 'stopping';
-  $: isUploading = store.state === 'mock_uploading';
-  $: hasError    = store.state === 'error';
+  let store = $derived($recorderStore);
+  let session = $derived(store.currentSession);
+  let isRecording = $derived(store.state === 'recording_offline');
+  let isPaused    = $derived(store.state === 'paused');
+  let isStopped   = $derived(store.state === 'stopped_local' || store.state === 'mock_synced');
+  let isStopping  = $derived(store.state === 'stopping');
+  let isUploading = $derived(store.state === 'mock_uploading');
+  let hasError    = $derived(store.state === 'error');
 
-  $: safariLimited = isSafariLimited();
-  $: mimeSupported = getSupportedMimeType();
-  $: _lang     = $langStore;
-  $: _auth     = $authStore;
-  $: authed    = isAuthenticated();
-  $: syncMode  = store.syncMode;
-  $: isStreaming = isRecording && syncMode === 'stream';
-  $: liveState = store.liveStreamState;
+  let safariLimited = $derived(isSafariLimited());
+  let mimeSupported = $derived(getSupportedMimeType());
+  let authed    = $derived(isAuthenticated());
+  let syncMode  = $derived(store.syncMode);
+  let isStreaming = $derived(isRecording && syncMode === 'stream');
+  let liveState = $derived(store.liveStreamState);
 
-  let loadError = '';
+  let loadError = $state('');
 
   onMount(async () => {
     recorderStore.init();
@@ -82,7 +80,7 @@
   <!-- ── Branded nav bar ── -->
   <nav class="page-nav">
     {#if store.state === 'ready' || isStopped}
-      <button class="back-btn" on:click={() => goto('/recorder')}>
+      <button class="back-btn" onclick={() => goto('/recorder')}>
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M9 3L4 7.5 9 12"/>
         </svg>
@@ -127,7 +125,7 @@
       <div class="error-card card">
         <div class="error-icon">⚠</div>
         <p>{loadError}</p>
-        <button class="btn btn-ghost" on:click={() => goto('/recorder')}>Back</button>
+        <button class="btn btn-ghost" onclick={() => goto('/recorder')}>Back</button>
       </div>
     </div>
 
@@ -137,8 +135,8 @@
         <div class="error-icon">⚠</div>
         <p>{store.errorMessage ?? 'An error occurred.'}</p>
         <div class="flex gap-3">
-          <button class="btn btn-ghost" on:click={() => recorderStore.clearError()}>Dismiss</button>
-          <button class="btn btn-primary" on:click={() => goto('/recorder')}>Back</button>
+          <button class="btn btn-ghost" onclick={() => recorderStore.clearError()}>Dismiss</button>
+          <button class="btn btn-primary" onclick={() => goto('/recorder')}>Back</button>
         </div>
       </div>
     </div>
@@ -155,10 +153,10 @@
             For best results, install this app to the Home Screen (Add to Home Screen).
           </div>
         {/if}
-        <button class="btn btn-primary" on:click={() => recorderStore.requestMicrophone()}>
+        <button class="btn btn-primary" onclick={() => recorderStore.requestMicrophone()}>
           Request Access Again
         </button>
-        <button class="btn btn-ghost" on:click={() => goto('/recorder')}>Back</button>
+        <button class="btn btn-ghost" onclick={() => goto('/recorder')}>Back</button>
       </div>
     </div>
 
@@ -189,7 +187,7 @@
         <SyncModeToggle
           mode={store.syncMode}
           online={store.isOnline}
-          on:change={(e) => recorderStore.setSyncMode(e.detail)}
+          onchange={(m) => recorderStore.setSyncMode(m)}
         />
       {/if}
 
@@ -238,11 +236,11 @@
           <!-- Show sync button only if NOT streamed during recording -->
           {#if syncMode === 'local'}
             {#if authed}
-              <button class="btn btn-ghost btn-full" on:click={handleMockUpload} disabled={isUploading}>
+              <button class="btn btn-ghost btn-full" onclick={handleMockUpload} disabled={isUploading}>
                 {isUploading ? '⏳ Syncing…' : '◈ Sync to EigenVertex'}
               </button>
             {:else}
-              <button class="signin-sync-btn btn-full" on:click={() => goto(`/auth?next=/recorder/session/${localSessionId}`)}>
+              <button class="signin-sync-btn btn-full" onclick={() => goto(`/auth?next=/recorder/session/${localSessionId}`)}>
                 <span class="ev-icon">◈</span>{t().auth.signInToSync}
               </button>
               <p class="signin-sync-hint">{t().auth.signInHint}</p>
@@ -259,13 +257,13 @@
             </div>
           {/if}
 
-          <button class="btn btn-ghost btn-full" on:click={() => goto('/recorder')}>Back to sessions</button>
+          <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
         </div>
       {:else if store.state === 'mock_synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
           <div class="synced-msg"><span class="synced-check">✓</span>Synced to EigenVertex{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
-          <button class="btn btn-ghost btn-full" on:click={() => goto('/recorder')}>Back to sessions</button>
+          <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
         </div>
       {:else if isUploading}
         <div class="uploading-state"><span class="spinner-lg"></span><span>Syncing…</span></div>
@@ -278,10 +276,10 @@
       <div class="controls-pinned">
         <RecorderControls
           state={store.state}
-          on:rec={handleRec}
-          on:pause={handlePause}
-          on:resume={handleResume}
-          on:stop={handleStop}
+          onrec={handleRec}
+          onpause={handlePause}
+          onresume={handleResume}
+          onstop={handleStop}
         />
       </div>
     {/if}

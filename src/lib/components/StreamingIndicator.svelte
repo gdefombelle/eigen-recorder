@@ -3,14 +3,16 @@
   import type { LiveStreamState } from '$lib/recorder/types';
   import { langStore } from '$lib/i18n/index';
 
-  export let liveStreamState: LiveStreamState = 'idle';
-  export let framesStreamed:   number          = 0;
-  export let pulse:            boolean         = false;
-  export let online:           boolean         = true;
+  let { liveStreamState = 'idle', framesStreamed = 0, pulse = false, online = true }: {
+    liveStreamState?: LiveStreamState;
+    framesStreamed?: number;
+    pulse?: boolean;
+    online?: boolean;
+  } = $props();
 
-  $: isFr = $langStore === 'fr';
+  let isFr = $derived($langStore === 'fr');
 
-  $: label = (() => {
+  let label = $derived((() => {
     if (!online) return isFr ? 'Hors-ligne — stocké localement' : 'Offline — stored locally';
     switch (liveStreamState) {
       case 'connecting':    return isFr ? 'Connexion au stream…'      : 'Connecting stream…';
@@ -19,15 +21,15 @@
       case 'failed':        return isFr ? 'Stream interrompu'          : 'Stream interrupted';
       default:              return isFr ? 'Stream EigenVertex actif'   : 'EigenVertex stream active';
     }
-  })();
+  })());
 
-  $: dotClass = (() => {
+  let dotClass = $derived((() => {
     if (!online)                            return 'dot-orange';
     if (liveStreamState === 'streaming')    return 'dot-green';
     if (liveStreamState === 'failed')       return 'dot-red';
     if (liveStreamState === 'reconnecting') return 'dot-orange';
     return 'dot-blue'; // connecting / idle
-  })();
+  })());
 </script>
 
 <div

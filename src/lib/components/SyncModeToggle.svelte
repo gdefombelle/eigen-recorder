@@ -1,23 +1,22 @@
 <!-- SyncModeToggle — shown in ready state before pressing REC -->
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import type { SyncMode } from '$lib/recorder/types';
   import { langStore } from '$lib/i18n/index';
   import { isAuthenticated } from '$lib/auth/auth';
   import { goto } from '$app/navigation';
 
-  const dispatch = createEventDispatcher<{ change: SyncMode }>();
+  let { mode = 'local', online = true, onchange }: {
+    mode?: SyncMode;
+    online?: boolean;
+    onchange?: (m: SyncMode) => void;
+  } = $props();
 
-  export let mode:   SyncMode = 'local';
-  export let online: boolean  = true;
-
-  $: authed = isAuthenticated();
-  $: canStream = authed && online;
-  $: isFr = $langStore === 'fr';
+  let authed = $derived(isAuthenticated());
+  let canStream = $derived(authed && online);
+  let isFr = $derived($langStore === 'fr');
 
   function select(m: SyncMode) {
-    mode = m;
-    dispatch('change', m);
+    onchange?.(m);
   }
 </script>
 
@@ -27,7 +26,7 @@
     type="button"
     class="sync-option"
     class:active={mode === 'local'}
-    on:click={() => select('local')}
+    onclick={() => select('local')}
   >
     <span class="sync-icon">📱</span>
     <div class="sync-label">
@@ -42,7 +41,7 @@
     class="sync-option"
     class:active={mode === 'stream'}
     class:disabled={!canStream}
-    on:click={() => {
+    onclick={() => {
       if (!authed) { goto('/auth?next=' + window.location.pathname); return; }
       if (canStream) select('stream');
     }}

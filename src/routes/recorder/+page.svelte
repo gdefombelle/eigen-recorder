@@ -8,8 +8,8 @@
   import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
 
   // PWA install prompt — captured before it fires, shown as a button
-  let installPrompt: BeforeInstallPromptEvent | null = null;
-  let installed = false;
+  let installPrompt: BeforeInstallPromptEvent | null = $state(null);
+  let installed = $state(false);
 
   interface BeforeInstallPromptEvent extends Event {
     prompt(): Promise<void>;
@@ -37,15 +37,13 @@
     if (outcome === 'accepted') { installed = true; installPrompt = null; }
   }
 
-  $: _lang  = $langStore;
-  $: _auth  = $authStore;
-  $: store  = $recorderStore;
-  $: authed = isAuthenticated();
-  $: user   = getUser();
+  let store  = $derived($recorderStore);
+  let authed = $derived(isAuthenticated());
+  let user   = $derived(getUser());
 
-  $: isFr = $langStore === 'fr';
+  let isFr = $derived($langStore === 'fr');
 
-  $: HERO = isFr ? {
+  let HERO = $derived(isFr ? {
     badge:     "Gratuit · Offline-first · Données locales",
     title:     "Capturez vos sessions.",
     accent:    "Sans réseau. Sans perdre un mot.",
@@ -69,9 +67,9 @@
     cta_sess:  "My recordings",
     cta_reg:   "Create a free account",
     cta_try:   "Record without an account",
-  };
+  });
 
-  $: FEATURES = isFr ? [
+  let FEATURES = $derived(isFr ? [
     { icon: '◈', title: "Offline-first",         desc: "Aucune connexion requise pour enregistrer. Chaque chunk audio est sauvegardé immédiatement dans IndexedDB." },
     { icon: '⬡', title: "Traitement local",       desc: "L'audio ne quitte jamais votre appareil sans votre accord. Aucun serveur impliqué pendant l'enregistrement." },
     { icon: '▤', title: "Types de sessions",      desc: "Réunion projet, interview expert, visite terrain, audit, workshop, follow-up — le contexte est capturé avec l'audio." },
@@ -85,9 +83,9 @@
     { icon: '⇡', title: "EigenVertex sync",       desc: "Sync your sessions to your EigenVertex workspace for transcription, indexing and exploitation." },
     { icon: '⬓', title: "Export & share",         desc: "Share audio via the native iOS share sheet or download as webm/m4a directly from the app." },
     { icon: '◎', title: "Native iOS ready",       desc: "Capacitor-ready architecture. The native iOS build unlocks advanced audio APIs and reliable background recording." },
-  ];
+  ]);
 
-  $: SESSION_TYPES = isFr ? [
+  let SESSION_TYPES = $derived(isFr ? [
     { icon: '🗓', label: 'Réunion projet' },
     { icon: '🎙', label: 'Interview expert' },
     { icon: '👥', label: 'Interview client' },
@@ -105,7 +103,7 @@
     { icon: '📋', label: 'Audit Session' },
     { icon: '🔄', label: 'Follow-Up' },
     { icon: '📻', label: 'Free Recording' },
-  ];
+  ]);
 </script>
 
 <svelte:head>

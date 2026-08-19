@@ -1,13 +1,15 @@
 <!-- OrientationGuide — conseil de positionnement iPhone avant d'enregistrer -->
 <script lang="ts">
   import { langStore } from '$lib/i18n/index';
-  export let dismissed = false;
+  import { onMount } from 'svelte';
 
-  $: isFr = $langStore === 'fr';
+  let { dismissed = $bindable(false) }: { dismissed?: boolean } = $props();
+
+  let isFr = $derived($langStore === 'fr');
 
   // Détection orientation actuelle
-  let currentOrientation: 'portrait' | 'landscape' = 'portrait';
-  import { onMount } from 'svelte';
+  let currentOrientation: 'portrait' | 'landscape' = $state('portrait');
+
   onMount(() => {
     const detect = () => {
       if (typeof screen !== 'undefined' && screen.orientation?.type) {
@@ -31,7 +33,7 @@
 
 {#if !dismissed}
 <div class="guide animate-fade-in">
-  <button class="dismiss" on:click={() => dismissed = true} aria-label="Fermer">×</button>
+  <button class="dismiss" onclick={() => dismissed = true} aria-label="Fermer">×</button>
 
   <div class="guide-title">
     {isFr ? '📱 Positionnez votre iPhone' : '📱 Position your iPhone'}

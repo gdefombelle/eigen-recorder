@@ -1,9 +1,8 @@
 <script lang="ts">
-  export let level: number = 0; // 0..1
-  export let active: boolean = false;
+  let { level = 0, active = false }: { level?: number; active?: boolean } = $props();
 
   const BARS = 20;
-  $: filledBars = Math.round(level * BARS);
+  let filledBars = $derived(Math.round(level * BARS));
 </script>
 
 <div class="meter" class:active>

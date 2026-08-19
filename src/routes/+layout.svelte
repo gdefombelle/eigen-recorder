@@ -1,5 +1,6 @@
 <script lang="ts">
   import '../app.css';
+  import type { Snippet } from 'svelte';
   import { onMount } from 'svelte';
   import { recorderStore } from '$lib/recorder/recorderStore';
   import { initAuth } from '$lib/auth/auth';
@@ -14,6 +15,8 @@
   import { pwaInfo } from 'virtual:pwa-info';
   import { useRegisterSW } from 'virtual:pwa-register/svelte';
 
+  let { children }: { children: Snippet } = $props();
+
   const manifestLinkTag = pwaInfo?.webManifest?.linkTag ?? '';
   useRegisterSW({ immediate: true });
 
@@ -24,20 +27,24 @@
     recorderStore.init();
   });
 
-  $: currentPath = $page.url.pathname;
-  $: _lang = $langStore; // re-render nav labels on language change
+  let currentPath = $derived($page.url.pathname);
 
-  $: navItems = [
-    { href: '/recorder',         label: 'Home',                    icon: '◈' },
-    { href: '/recorder/offline', label: t().recorder.sessions,     icon: '📂' },
-    { href: '/settings',         label: t().settings.pageTitle,    icon: '⚙' },
-  ];
+  // $langStore accessed here so navItems re-renders on language change
+  let navItems = $derived((() => {
+    const _l = $langStore; // reactive dependency
+    return [
+      { href: '/recorder',         label: 'Home',                 icon: '◈' },
+      { href: '/recorder/offline', label: t().recorder.sessions,  icon: '📂' },
+      { href: '/settings',         label: t().settings.pageTitle, icon: '⚙' },
+    ];
+  })());
 
   // Full-screen on session/new page — hide nav
-  $: hideNav =
+  let hideNav = $derived(
     currentPath.startsWith('/recorder/session/') ||
     currentPath.startsWith('/recorder/new') ||
-    currentPath.startsWith('/auth');
+    currentPath.startsWith('/auth')
+  );
 </script>
 
 <svelte:head>
@@ -45,7 +52,7 @@
 </svelte:head>
 
 <div class="app-shell">
-  <slot />
+  {@render children()}
 
   {#if !hideNav}
     <nav class="bottom-nav">

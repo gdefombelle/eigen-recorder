@@ -1,26 +1,24 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import type { RecorderState } from '$lib/recorder/types';
   import EndMeetingDialog from './EndMeetingDialog.svelte';
   import { langStore } from '$lib/i18n/index';
 
-  export let state: RecorderState;
+  let { state: recState, onrec, onpause, onresume, onstop }: {
+    state: RecorderState;
+    onrec?: () => void;
+    onpause?: () => void;
+    onresume?: () => void;
+    onstop?: () => void;
+  } = $props();
 
-  const dispatch = createEventDispatcher<{
-    rec:    void;
-    pause:  void;
-    resume: void;
-    stop:   void;
-  }>();
+  let showEndDialog = $state(false);
 
-  let showEndDialog = false;
-
-  $: isReady     = state === 'ready';
-  $: isRecording = state === 'recording_offline';
-  $: isPaused    = state === 'paused';
-  $: isStopping  = state === 'stopping';
-  $: canControl  = isRecording || isPaused;
-  $: isFr        = $langStore === 'fr';
+  let isReady     = $derived(recState === 'ready');
+  let isRecording = $derived(recState === 'recording_offline');
+  let isPaused    = $derived(recState === 'paused');
+  let isStopping  = $derived(recState === 'stopping');
+  let canControl  = $derived(isRecording || isPaused);
+  let isFr        = $derived($langStore === 'fr');
 
   // User taps "End meeting" → show confirmation dialog
   function requestStop() {
@@ -30,14 +28,14 @@
   // User confirms → stop
   function onConfirmStop() {
     showEndDialog = false;
-    dispatch('stop');
+    onstop?.();
   }
 
   // User changes mind → pause (if recording) + dismiss dialog
   function onCancelStop() {
     showEndDialog = false;
     if (isRecording) {
-      dispatch('pause');
+      onpause?.();
     }
     // If already paused, just close — nothing to do
   }
@@ -47,7 +45,7 @@
   {#if isReady}
     <button
       class="rec-btn"
-      on:click={() => dispatch('rec')}
+      onclick={() => onrec?.()}
       aria-label="Start recording"
     >
       <span class="rec-icon"></span>
@@ -60,7 +58,7 @@
       {#if isRecording}
         <button
           class="ctrl-btn pause-btn"
-          on:click={() => dispatch('pause')}
+          onclick={() => onpause?.()}
           aria-label="Pause"
           disabled={isStopping}
         >
@@ -73,7 +71,7 @@
       {:else}
         <button
           class="ctrl-btn resume-btn"
-          on:click={() => dispatch('resume')}
+          onclick={() => onresume?.()}
           aria-label="Resume"
           disabled={isStopping}
         >
@@ -87,7 +85,7 @@
       <!-- End meeting — triggers dialog instead of direct stop -->
       <button
         class="ctrl-btn end-btn"
-        on:click={requestStop}
+        onclick={requestStop}
         aria-label="End meeting"
         disabled={isStopping}
       >
@@ -112,8 +110,8 @@
 <!-- Confirmation dialog — shown above everything when user taps END -->
 {#if showEndDialog}
   <EndMeetingDialog
-    on:confirm={onConfirmStop}
-    on:cancel={onCancelStop}
+    onconfirm={onConfirmStop}
+    oncancel={onCancelStop}
   />
 {/if}
 

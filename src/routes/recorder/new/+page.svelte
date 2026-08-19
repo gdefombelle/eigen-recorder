@@ -8,7 +8,7 @@
 <main>
   <div class="page">
     <div class="content">
-      <SessionCreateLocal on:cancel={() => goto('/recorder')} />
+      <SessionCreateLocal oncancel={() => goto('/recorder')} />
     </div>
   </div>
 </main>

@@ -1,15 +1,14 @@
 <!-- EndMeetingDialog — replaces direct STOP button.
      Confirms intent before stopping. If user changes mind → PAUSE + explanation. -->
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import { langStore } from '$lib/i18n/index';
 
-  const dispatch = createEventDispatcher<{
-    confirm: void;  // user confirms → stop recording
-    cancel:  void;  // user changes mind → pause + explain
-  }>();
+  let { onconfirm, oncancel }: {
+    onconfirm?: () => void;
+    oncancel?: () => void;
+  } = $props();
 
-  $: isFr = $langStore === 'fr';
+  let isFr = $derived($langStore === 'fr');
 </script>
 
 <div class="overlay" role="dialog" aria-modal="true">
@@ -39,7 +38,7 @@
       <button
         type="button"
         class="btn-continue"
-        on:click={() => dispatch('cancel')}
+        onclick={() => oncancel?.()}
       >
         {isFr ? '⏸ Continuer la réunion' : '⏸ Keep recording'}
       </button>
@@ -48,7 +47,7 @@
       <button
         type="button"
         class="btn-end"
-        on:click={() => dispatch('confirm')}
+        onclick={() => onconfirm?.()}
       >
         {isFr ? 'Terminer' : 'End meeting'}
       </button>

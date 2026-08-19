@@ -3,22 +3,24 @@
   import { offlineStorage } from '$lib/recorder/offlineStorage';
   import { formatBytes } from '$lib/recorder/utils';
 
-  export let sessionId: string;
-  export let chunkCount: number = 0;
-  export let variant: 'full' | 'icon' = 'full';
+  let { sessionId, chunkCount = 0, variant = 'full' }: {
+    sessionId: string;
+    chunkCount?: number;
+    variant?: 'full' | 'icon';
+  } = $props();
 
-  type State = 'idle' | 'preparing' | 'sharing' | 'done' | 'error';
+  type ShareState = 'idle' | 'preparing' | 'sharing' | 'done' | 'error';
 
-  let state: State = 'idle';
-  let outcome: string = '';
-  let errorMsg: string = '';
-  let exportSize: number = 0;
-  let mimeType: string = '';
-  let showWarning = false;
+  let shareStatus: ShareState = $state('idle');
+  let outcome: string = $state('');
+  let errorMsg: string = $state('');
+  let exportSize: number = $state(0);
+  let mimeType: string = $state('');
+  let showWarning = $state(false);
 
-  $: canShare = canWebShare();
-  $: label = canShare ? 'Share Audio' : 'Export Audio';
-  $: icon  = canShare ? '↑' : '↓';
+  let canShare = $derived(canWebShare());
+  let label = $derived(canShare ? 'Share Audio' : 'Export Audio');
+  let icon  = $derived(canShare ? '↑' : '↓');
 
   async function loadMeta() {
     const chunks = await offlineStorage.getChunksMeta(sessionId);
@@ -26,12 +28,14 @@
     showWarning = isSafariMp4Warning(mimeType);
   }
 
-  $: if (sessionId) loadMeta();
+  $effect(() => {
+    if (sessionId) loadMeta();
+  });
 
   async function handleShare() {
-    if (state === 'preparing' || state === 'sharing') return;
+    if (shareStatus === 'preparing' || shareStatus === 'sharing') return;
 
-    state = 'preparing';
+    shareStatus = 'preparing';
     errorMsg = '';
 
     try {
@@ -41,48 +45,48 @@
       mimeType   = info.mimeType;
       showWarning = isSafariMp4Warning(mimeType);
 
-      state = 'sharing';
+      shareStatus = 'sharing';
       const result = await shareOrDownload(sessionId);
 
       if (result === 'cancelled') {
-        state = 'idle';
+        shareStatus = 'idle';
         return;
       }
 
       outcome = result === 'shared' ? 'Shared ✓' : 'Saved to Downloads ✓';
-      state   = 'done';
-      setTimeout(() => { state = 'idle'; outcome = ''; }, 3500);
+      shareStatus   = 'done';
+      setTimeout(() => { shareStatus = 'idle'; outcome = ''; }, 3500);
 
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : 'Export failed';
-      state    = 'error';
+      shareStatus    = 'error';
     }
   }
 
-  function dismiss() { state = 'idle'; errorMsg = ''; }
+  function dismiss() { shareStatus = 'idle'; errorMsg = ''; }
 </script>
 
 <div class="share-wrap">
 
-  {#if state === 'error'}
+  {#if shareStatus === 'error'}
     <div class="share-error">
       <span>{errorMsg}</span>
-      <button class="btn btn-sm btn-ghost" on:click={dismiss}>Dismiss</button>
+      <button class="btn btn-sm btn-ghost" onclick={dismiss}>Dismiss</button>
     </div>
-  {:else if state === 'done'}
+  {:else if shareStatus === 'done'}
     <div class="share-done">{outcome}</div>
   {:else}
     <button
       class="share-btn"
       class:icon-only={variant === 'icon'}
-      on:click={handleShare}
-      disabled={chunkCount === 0 || state === 'preparing' || state === 'sharing'}
+      onclick={handleShare}
+      disabled={chunkCount === 0 || shareStatus === 'preparing' || shareStatus === 'sharing'}
       title="{label} — {formatBytes(exportSize) || '…'}"
     >
-      {#if state === 'preparing'}
+      {#if shareStatus === 'preparing'}
         <span class="spinner-sm"></span>
         Preparing…
-      {:else if state === 'sharing'}
+      {:else if shareStatus === 'sharing'}
         <span class="spinner-sm"></span>
         {canShare ? 'Opening…' : 'Downloading…'}
       {:else if variant === 'icon'}

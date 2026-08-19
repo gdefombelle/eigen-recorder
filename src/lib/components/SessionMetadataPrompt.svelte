@@ -1,11 +1,11 @@
-<script context="module" lang="ts">
+<script module lang="ts">
   // Persists across component remounts — one geolocation request per session
   const _geoCache: { done: boolean; address: string; error: string; lat: number | null; lng: number | null } =
     { done: false, address: '', error: '', lat: null, lng: null };
 </script>
 
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { onMount } from 'svelte';
   import type { KnowledgeSessionType, CreateSessionParams, RecordableKnowledgeSession } from '$lib/recorder/types';
   import { SESSION_TYPE_LABELS } from '$lib/recorder/types';
   import { apiGetRecordableSessions } from '$lib/auth/api';
@@ -13,27 +13,27 @@
   import { langStore, t } from '$lib/i18n/index';
   import { isAuthenticated } from '$lib/auth/auth';
 
-  const dispatch = createEventDispatcher<{ submit: CreateSessionParams; cancel: void }>();
-
-  export let loading = false;
+  let { loading = false, onsubmit, oncancel }: {
+    loading?: boolean;
+    onsubmit?: (params: CreateSessionParams) => void;
+    oncancel?: () => void;
+  } = $props();
 
   // ── Form fields ──────────────────────────────────────────────
-  let title:           string               = '';
-  let session_type:    KnowledgeSessionType = 'project_meeting';
-  let subject:         string               = '';
-  let agenda:          string               = '';
-  let participantsRaw: string               = '';
-  let location_label:  string               = '';
+  let title:           string               = $state('');
+  let session_type:    KnowledgeSessionType = $state('project_meeting');
+  let subject:         string               = $state('');
+  let agenda:          string               = $state('');
+  let participantsRaw: string               = $state('');
+  let location_label:  string               = $state('');
 
   // Raw recorder geolocation — sent alongside location_label as the source of
   // truth at Start time (takes precedence over any app-entered location).
-  let geoLat: number | null = null;
-  let geoLng: number | null = null;
-  let geoFromDevice = false; // true once a real GPS fix has been captured (vs. manual text entry)
+  let geoLat: number | null = $state(null);
+  let geoLng: number | null = $state(null);
+  let geoFromDevice = $state(false); // true once a real GPS fix has been captured (vs. manual text entry)
 
   const SESSION_TYPES = Object.entries(SESSION_TYPE_LABELS) as [KnowledgeSessionType, string][];
-
-  $: _lang = $langStore;
 
   // ── Address autocomplete (Photon / OpenStreetMap — no API key) ───────────
 
@@ -49,9 +49,9 @@
     };
   }
 
-  let suggestions: string[]  = [];
-  let suggestOpen = false;
-  let suggestLoading = false;
+  let suggestions: string[]  = $state([]);
+  let suggestOpen = $state(false);
+  let suggestLoading = $state(false);
   let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   function formatPhotonResult(f: PhotonFeature): string {
@@ -114,9 +114,9 @@
   // ── Geolocation ──────────────────────────────────────────────
   // Module-level cache — persists across component remounts so we don't
   // re-request location every time the user opens "New Session".
-  let geoLoading = false;
-  let geoAddress = '';
-  let geoError   = '';
+  let geoLoading = $state(false);
+  let geoAddress = $state('');
+  let geoError   = $state('');
 
   onMount(() => {
     if (_geoCache.done) {
@@ -187,12 +187,12 @@
   });
 
   // ── Planned meetings (EigenVertex backend) ────────────────────
-  let showMeetingPicker    = false;
-  let recordableSessions: RecordableKnowledgeSession[] = [];
-  let meetingsLoading      = false;
-  let sessionsError        = '';
-  let selectedSessionId:   string | null = null;
-  let selectedProjectId:   string | null = null;
+  let showMeetingPicker    = $state(false);
+  let recordableSessions: RecordableKnowledgeSession[] = $state([]);
+  let meetingsLoading      = $state(false);
+  let sessionsError        = $state('');
+  let selectedSessionId:   string | null = $state(null);
+  let selectedProjectId:   string | null = $state(null);
 
   async function loadRecordableSessions() {
     if (!isAuthenticated()) return;
@@ -233,8 +233,8 @@
 
   // ── STT (Web Speech API) ─────────────────────────────────────
   type FieldName = 'title' | 'subject' | 'agenda' | 'participants';
-  let sttActive: FieldName | null = null;
-  let sttSupported = false;
+  let sttActive: FieldName | null = $state(null);
+  let sttSupported = $state(false);
 
   onMount(() => {
     sttSupported = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
@@ -307,7 +307,7 @@
   function quickRecord() {
     const now  = new Date();
     const time = now.toLocaleTimeString($langStore === 'fr' ? 'fr-FR' : 'en-US', { hour: '2-digit', minute: '2-digit' });
-    dispatch('submit', {
+    onsubmit?.({
       title:                $langStore === 'fr' ? `Note ${time}` : `Note ${time}`,
       session_type:         'free_recording',
       subject:              '',
@@ -325,7 +325,7 @@
   // ── Submit ───────────────────────────────────────────────────
   function submit() {
     if (!title.trim()) return;
-    dispatch('submit', {
+    onsubmit?.({
       title:                title.trim(),
       session_type,
       subject:              subject.trim(),
@@ -341,10 +341,10 @@
   }
 </script>
 
-<form class="metadata-form animate-slide-up" on:submit|preventDefault={submit}>
+<form class="metadata-form animate-slide-up" onsubmit={(e) => { e.preventDefault(); submit(); }}>
 
   <!-- ── Quick Record ── -->
-  <button type="button" class="quick-rec-btn" on:click={quickRecord} disabled={loading}>
+  <button type="button" class="quick-rec-btn" onclick={quickRecord} disabled={loading}>
     <span class="quick-rec-icon">⚡</span>
     <div class="quick-rec-text">
       <span class="quick-rec-title">{$langStore === 'fr' ? 'Enregistrer maintenant' : 'Record now'}</span>
@@ -367,9 +367,9 @@
           value={location_label}
           placeholder={$langStore === 'fr' ? 'ex. Bureau client, Paris…' : 'e.g. Client office, Paris…'}
           autocomplete="off"
-          on:input={onLocationInput}
-          on:blur={onLocationBlur}
-          on:focus={() => { if (suggestions.length) suggestOpen = true; }}
+          oninput={onLocationInput}
+          onblur={onLocationBlur}
+          onfocus={() => { if (suggestions.length) suggestOpen = true; }}
         />
         <span class="geo-status">
           {#if suggestLoading}
@@ -379,11 +379,11 @@
           {:else if geoAddress}
             <button type="button" class="mic-btn geo-btn"
               title={$langStore === 'fr' ? 'Ma position' : 'My location'}
-              on:click={() => pickSuggestion(geoAddress)}>📍</button>
+              onclick={() => pickSuggestion(geoAddress)}>📍</button>
           {:else}
             <button type="button" class="mic-btn geo-btn"
               title={$langStore === 'fr' ? 'Détecter ma position' : 'Detect location'}
-              on:click={retryGeo}>🗺</button>
+              onclick={retryGeo}>🗺</button>
           {/if}
         </span>
       </div>
@@ -397,7 +397,7 @@
               class="suggest-item"
               role="option"
               aria-selected={location_label === s}
-              on:mousedown|preventDefault={() => pickSuggestion(s)}
+              onmousedown={(e) => { e.preventDefault(); pickSuggestion(s); }}
             >
               <span class="suggest-icon">📍</span>
               <span class="suggest-text">{s}</span>
@@ -408,7 +408,7 @@
 
       <!-- GPS suggestion chip -->
       {#if geoAddress && location_label !== geoAddress && !suggestOpen}
-        <button type="button" class="geo-suggest" on:click={() => pickSuggestion(geoAddress)}>
+        <button type="button" class="geo-suggest" onclick={() => pickSuggestion(geoAddress)}>
           📍 {geoAddress}
         </button>
       {/if}
@@ -422,7 +422,7 @@
         type="button"
         class="planned-toggle"
         class:is-selected={selectedSessionId !== null}
-        on:click={() => showMeetingPicker = !showMeetingPicker}
+        onclick={() => showMeetingPicker = !showMeetingPicker}
       >
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" style="flex-shrink:0">
           <rect x="1" y="2" width="12" height="11" rx="1.5"/>
@@ -437,7 +437,7 @@
             type="button"
             class="clear-session-btn"
             title="Clear selection"
-            on:click|stopPropagation={clearSession}
+            onclick={(e) => { e.stopPropagation(); clearSession(); }}
           >✕</button>
         {:else}
           <span class="planned-toggle-label">Pick a planned meeting</span>
@@ -466,7 +466,7 @@
                 type="button"
                 class="meeting-item"
                 class:active={s.id === selectedSessionId}
-                on:click={() => applyPlannedMeeting(s)}
+                onclick={() => applyPlannedMeeting(s)}
               >
                 <div class="mi-header">
                   <span class="mi-title">{s.title}</span>
@@ -512,7 +512,7 @@
       />
       {#if sttSupported}
         <button type="button" class="mic-btn" class:active={sttActive === 'title'}
-          on:click={() => startSTT('title')} title="Dictate">
+          onclick={() => startSTT('title')} title="Dictate">
           {sttActive === 'title' ? '🔴' : '🎙'}
         </button>
       {/if}
@@ -534,7 +534,7 @@
       />
       {#if sttSupported}
         <button type="button" class="mic-btn" class:active={sttActive === 'subject'}
-          on:click={() => startSTT('subject')} title="Dictate">
+          onclick={() => startSTT('subject')} title="Dictate">
           {sttActive === 'subject' ? '🔴' : '🎙'}
         </button>
       {/if}
@@ -555,7 +555,7 @@
       ></textarea>
       {#if sttSupported}
         <button type="button" class="mic-btn mic-textarea" class:active={sttActive === 'agenda'}
-          on:click={() => startSTT('agenda')} title="Dictate">
+          onclick={() => startSTT('agenda')} title="Dictate">
           {sttActive === 'agenda' ? '🔴' : '🎙'}
         </button>
       {/if}
@@ -576,7 +576,7 @@
       ></textarea>
       {#if sttSupported}
         <button type="button" class="mic-btn mic-textarea" class:active={sttActive === 'participants'}
-          on:click={() => startSTT('participants')} title="Dictate">
+          onclick={() => startSTT('participants')} title="Dictate">
           {sttActive === 'participants' ? '🔴' : '🎙'}
         </button>
       {/if}
@@ -585,7 +585,7 @@
 
   <!-- ── Actions ── -->
   <div class="form-actions">
-    <button type="button" class="btn btn-ghost" on:click={() => dispatch('cancel')} disabled={loading}>
+    <button type="button" class="btn btn-ghost" onclick={() => oncancel?.()} disabled={loading}>
       Cancel
     </button>
     <button type="submit" class="btn btn-primary btn-lg" disabled={!title.trim() || loading}>

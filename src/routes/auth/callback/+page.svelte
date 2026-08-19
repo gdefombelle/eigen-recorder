@@ -9,7 +9,7 @@
   let status: Status = 'loading';
   let errorDetail    = '';
 
-  $: _lang = $langStore;
+  // langStore accessed reactively in template — no explicit $: needed
 
   onMount(async () => {
     const qp   = new URLSearchParams(window.location.search);

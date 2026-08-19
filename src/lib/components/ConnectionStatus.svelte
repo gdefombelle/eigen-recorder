@@ -1,5 +1,5 @@
 <script lang="ts">
-  export let online: boolean;
+  let { online }: { online: boolean } = $props();
 </script>
 
 <div class="conn-status" class:online class:offline={!online}>
