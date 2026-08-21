@@ -1,14 +1,17 @@
-// shareAudio — merge IndexedDB chunks → Blob, then Web Share API or download fallback.
+// shareAudio — merge IndexedDB chunks → Blob, then share via native iOS sheet
+// or Web Share API or download fallback (in that priority order).
 //
-// WebM chunks from a single MediaRecorder session can be safely concatenated:
-// the first chunk carries the EBML/Segment header; subsequent chunks are raw clusters.
-// mp4/m4a (Safari) does NOT support safe concatenation — we warn the user and still
-// attempt it, which works for short recordings but may produce corrupt files for long ones.
-// The Capacitor iOS build will handle this properly via native AVAssetExportSession.
+// iOS native (Capacitor): writes blob to Cache directory then invokes
+// @capacitor/share → UIActivityViewController (real AirDrop / Messages sheet).
+//
+// Web/PWA: uses Web Share API Level 2 (files) when available, falls back to
+// a browser download link.
 
 import { offlineStorage } from './offlineStorage';
-import { isNative } from '$lib/platform';
-import { EigenAudio } from '$lib/plugins/eigenAudio';
+import { isNative }       from '$lib/platform';
+import { EigenAudio }     from '$lib/plugins/eigenAudio';
+import { Share }          from '@capacitor/share';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 
 export interface ExportResult {
   blob:     Blob;
@@ -24,11 +27,24 @@ function extForMime(mime: string): string {
   if (mime.includes('mp4') || mime.includes('aac') || mime.includes('m4a')) return 'm4a';
   if (mime.includes('ogg'))  return 'ogg';
   if (mime.includes('webm')) return 'webm';
-  return 'caf'; // native iOS default
+  return 'm4a'; // iOS default
 }
 
 function slugify(str: string): string {
   return str.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 60);
+}
+
+/** Convert a Blob to a base64 string (without data: prefix). */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => {
+      const dataUrl = reader.result as string;
+      resolve(dataUrl.split(',')[1]); // strip "data:...;base64,"
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 export async function buildExport(sessionId: string): Promise<ExportResult> {
@@ -43,9 +59,9 @@ export async function buildExport(sessionId: string): Promise<ExportResult> {
   // at stop() time and does not persist them to EigenChunks/{sessionId}/.
   if (isNative()) {
     try {
-      const result  = await EigenAudio.mergeChunks({ sessionId });
-      const bytes   = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
-      const blob    = new Blob([bytes], { type: result.mimeType });
+      const result   = await EigenAudio.mergeChunks({ sessionId });
+      const bytes    = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
+      const blob     = new Blob([bytes], { type: result.mimeType });
       const filename = `${slugify(session.title)}_${date}.m4a`;
       return { blob, filename, mimeType: result.mimeType, sizeBytes: result.sizeBytes };
     } catch (nativeErr) {
@@ -65,7 +81,7 @@ export async function buildExport(sessionId: string): Promise<ExportResult> {
   }
   if (blobs.length === 0) throw new Error('Audio data missing from local storage');
 
-  const mimeType = chunks[0].mime_type || 'audio/webm';
+  const mimeType = chunks[0].mime_type || 'audio/mp4';
   const filename = `${slugify(session.title)}_${date}.${extForMime(mimeType)}`;
   const merged   = new Blob(blobs, { type: mimeType });
   return { blob: merged, filename, mimeType, sizeBytes: merged.size };
@@ -73,9 +89,31 @@ export async function buildExport(sessionId: string): Promise<ExportResult> {
 
 export async function shareOrDownload(sessionId: string): Promise<ShareOutcome> {
   const { blob, filename } = await buildExport(sessionId);
-  const file = new File([blob], filename, { type: blob.type });
 
-  // Web Share API — native sheet on iOS / Android / modern desktop
+  // ── iOS Capacitor: write to cache dir, open native UIActivityViewController ──
+  if (isNative()) {
+    let wrote = false;
+    try {
+      const base64 = await blobToBase64(blob);
+      await Filesystem.writeFile({ path: filename, data: base64, directory: Directory.Cache });
+      wrote = true;
+      const { uri } = await Filesystem.getUri({ path: filename, directory: Directory.Cache });
+      await Share.share({ url: uri, title: filename, dialogTitle: 'Share recording' });
+      return 'shared';
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return 'cancelled';
+      // Share was dismissed or failed — not a hard error for the user
+      console.warn('[EigenMeeting] native share failed —', err);
+      return 'cancelled';
+    } finally {
+      if (wrote) {
+        Filesystem.deleteFile({ path: filename, directory: Directory.Cache }).catch(() => {});
+      }
+    }
+  }
+
+  // ── Web: Web Share API Level 2 (files) ────────────────────────────────────
+  const file = new File([blob], filename, { type: blob.type });
   if (
     typeof navigator !== 'undefined' &&
     'canShare' in navigator &&
@@ -85,13 +123,11 @@ export async function shareOrDownload(sessionId: string): Promise<ShareOutcome> 
       await navigator.share({ files: [file], title: filename });
       return 'shared';
     } catch (err) {
-      // User cancelled the share sheet — not an error
       if (err instanceof Error && err.name === 'AbortError') return 'cancelled';
-      // Fall through to download if share fails for another reason
     }
   }
 
-  // Fallback: trigger browser download
+  // ── Web fallback: browser download ────────────────────────────────────────
   const url = URL.createObjectURL(blob);
   const a   = document.createElement('a');
   a.href     = url;

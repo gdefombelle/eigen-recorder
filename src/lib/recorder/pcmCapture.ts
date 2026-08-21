@@ -80,6 +80,7 @@ export class PcmCapture {
   private ctx:         AudioContext | null               = null;
   private workletNode: AudioWorkletNode | null           = null;
   private source:      MediaStreamAudioSourceNode | null = null;
+  private gainNode:    GainNode | null                   = null; // iOS amplification stage
   private _stream:     MediaStream | null                = null;
   private sink:        GainNode | null                   = null;
 
@@ -144,10 +145,18 @@ export class PcmCapture {
     this.source      = ctx.createMediaStreamSource(this._stream);
     this.workletNode = new AudioWorkletNode(ctx, 'pcm-frame-processor');
 
+    // iOS WKWebView mic signal is typically 20–30 dB below desktop even with AGC.
+    // A ×10 (20 dB) gain stage brings normal speech to -20 dBFS.
+    // The worklet already clamps samples to ±1, so clipping from a very loud
+    // input degrades gracefully without crashing the pipeline.
+    this.gainNode            = ctx.createGain();
+    this.gainNode.gain.value = isIOS ? 10 : 1;
+
     // Silent sink — required in some browsers for the graph to actually process
     this.sink             = ctx.createGain();
     this.sink.gain.value  = 0;
-    this.source.connect(this.workletNode);
+    this.source.connect(this.gainNode);
+    this.gainNode.connect(this.workletNode);
     this.workletNode.connect(this.sink);
     this.sink.connect(ctx.destination);
 
@@ -199,6 +208,8 @@ export class PcmCapture {
     this.workletNode?.port.close();
     this.workletNode?.disconnect();
     this.workletNode = null;
+    this.gainNode?.disconnect();
+    this.gainNode = null;
     this.source?.disconnect();
     this.source = null;
     this.sink?.disconnect();
