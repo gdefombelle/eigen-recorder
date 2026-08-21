@@ -99,13 +99,19 @@ export class PcmCapture {
   // ── Start ─────────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {
-    // Mono mic — no stereo, no noise suppression/AGC for raw PCM capture
+    // On iOS/WKWebView, autoGainControl MUST be true: without it the hardware ADC
+    // operates at minimum analog gain (~-48 dBFS), producing near-silent capture.
+    // On desktop/Android the raw signal is already at a usable level so we can
+    // disable AGC to preserve natural dynamics.
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
     this._stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount:      1,
         echoCancellation:  false,
         noiseSuppression:  false,
-        autoGainControl:   false,
+        autoGainControl:   isIOS,
       },
     });
 
