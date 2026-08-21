@@ -47,8 +47,10 @@
 
   // Keep screen on while recording or paused.
   // Browser releases the lock when the app goes to background; re-acquire on return.
-  $: shouldKeepAwake = isRecording || isPaused;
-  $: shouldKeepAwake ? acquireWakeLock() : releaseWakeLock();
+  let shouldKeepAwake = $derived(isRecording || isPaused);
+  $effect(() => {
+    shouldKeepAwake ? acquireWakeLock() : releaseWakeLock();
+  });
 
   function onVisibilityChange() {
     if (document.visibilityState === 'visible') {
