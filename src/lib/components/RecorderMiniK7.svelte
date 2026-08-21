@@ -37,6 +37,14 @@
 
   let loadError = $state('');
 
+  // micLevel needs to update ~3×/s (PCM frames) or 10×/s (native poll).
+  // $derived($recorderStore) can batch/skip rapid updates in Svelte 5 —
+  // bypass it with an explicit subscription so the meter always reflects reality.
+  let micLevelLive = $state(0);
+  $effect(() => {
+    return recorderStore.subscribe(s => { micLevelLive = s.micLevel; });
+  });
+
   // Keep screen on while recording or paused.
   // Browser releases the lock when the app goes to background; re-acquire on return.
   $: shouldKeepAwake = isRecording || isPaused;
@@ -211,10 +219,10 @@
         />
       {/if}
 
-      <!-- Mono mic level meter -->
+      <!-- Mono mic level meter — uses direct subscription, not derived store -->
       <div class="level-zone">
         <MicLevelMeter
-          level={store.micLevel}
+          level={micLevelLive}
           active={isRecording}
         />
       </div>
