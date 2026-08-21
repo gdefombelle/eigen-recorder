@@ -52,7 +52,14 @@
       <span class="rec-text">REC</span>
     </button>
 
-  {:else if canControl || isStopping}
+  {:else if isStopping}
+    <!-- Clean saving state — no buttons, just status -->
+    <div class="saving-state" aria-live="polite">
+      <span class="saving-dot"></span>
+      <span class="saving-label">{isFr ? 'Sauvegarde en cours…' : 'Saving recording…'}</span>
+    </div>
+
+  {:else if canControl}
     <div class="active-controls">
       <!-- Pause / Resume -->
       {#if isRecording}
@@ -60,7 +67,6 @@
           class="ctrl-btn pause-btn"
           onclick={() => onpause?.()}
           aria-label="Pause"
-          disabled={isStopping}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <rect x="3" y="2" width="4" height="12" rx="1"/>
@@ -73,7 +79,6 @@
           class="ctrl-btn resume-btn"
           onclick={() => onresume?.()}
           aria-label="Resume"
-          disabled={isStopping}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M4 2l10 6-10 6V2z"/>
@@ -82,23 +87,17 @@
         </button>
       {/if}
 
-      <!-- End meeting — triggers dialog instead of direct stop -->
+      <!-- End meeting — triggers dialog -->
       <button
         class="ctrl-btn end-btn"
         onclick={requestStop}
         aria-label="End meeting"
-        disabled={isStopping}
       >
-        {#if isStopping}
-          <span class="saving-dot"></span>
-          {isFr ? 'SAUVEGARDE…' : 'SAVING…'}
-        {:else}
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-            <path d="M8 3v5l3 3"/>
-            <circle cx="8" cy="8" r="6"/>
-          </svg>
-          {isFr ? 'TERMINER' : 'END'}
-        {/if}
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M8 3v5l3 3"/>
+          <circle cx="8" cy="8" r="6"/>
+        </svg>
+        {isFr ? 'TERMINER' : 'END'}
       </button>
     </div>
 
@@ -210,10 +209,28 @@
     background: rgba(229,72,77,0.08);
   }
 
+  .saving-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-3);
+    padding: var(--sp-4) var(--sp-5);
+    min-height: 52px;
+  }
+
+  .saving-label {
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--ev-text-dim);
+  }
+
   .saving-dot {
     width: 8px; height: 8px;
     border-radius: 50%;
     background: var(--ev-text-dim);
     animation: pulse-dot 0.8s ease-in-out infinite;
+    flex-shrink: 0;
   }
 </style>

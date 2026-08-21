@@ -155,8 +155,10 @@ export class PcmCapture {
       const idx    = this._frameIndex++;
       const startMs = idx * FRAME_DURATION_MS;
       const endMs   = startMs + FRAME_DURATION_MS;
-      // Scale RMS (0..1) into a usable 0..1 visual level
-      this._lastLevel = Math.min(1, rms * 6);
+      // Scale RMS (0..1) into a usable 0..1 visual level.
+      // WKWebView on iOS returns a quieter signal than desktop Chrome —
+      // use a logarithmic scale so quiet speech still shows movement.
+      this._lastLevel = Math.min(1, rms > 0 ? (Math.log10(1 + rms * 200) / Math.log10(201)) : 0);
       this.onLevel?.(this._lastLevel);
       this.onFrame?.(pcm, idx, startMs, endMs);
     };
