@@ -77,15 +77,23 @@ registerProcessor('pcm-frame-processor', PcmFrameProcessor);
 // ---------------------------------------------------------------------------
 
 export class PcmCapture {
-  private ctx:         AudioContext | null               = null;
-  private workletNode: AudioWorkletNode | null           = null;
-  private source:      MediaStreamAudioSourceNode | null = null;
-  private gainNode:    GainNode | null                   = null; // iOS amplification stage
-  private _stream:     MediaStream | null                = null;
-  private sink:        GainNode | null                   = null;
+  private ctx:         AudioContext | null                         = null;
+  private workletNode: AudioWorkletNode | null                     = null;
+  private source:      MediaStreamAudioSourceNode | null           = null;
+  private gainNode:    GainNode | null                             = null; // iOS amplification stage
+  private ampDest:     MediaStreamAudioDestinationNode | null      = null; // gained stream for backup recorder
+  private _stream:     MediaStream | null                          = null;
+  private sink:        GainNode | null                             = null;
 
-  /** The underlying MediaStream — available after start(), null before/after. */
+  /** The raw getUserMedia stream — available after start(), null before/after. */
   get stream(): MediaStream | null { return this._stream; }
+
+  /**
+   * Amplified stream — the mic signal after the iOS gain stage.
+   * Use this for backup MediaRecorder so the saved file matches the VU meter level.
+   * Falls back to `stream` on non-iOS (gain = 1, no difference).
+   */
+  get amplifiedStream(): MediaStream | null { return this.ampDest?.stream ?? this._stream; }
 
   private _startEpoch  = 0;
   private _pausedMs    = 0;
@@ -152,11 +160,16 @@ export class PcmCapture {
     this.gainNode            = ctx.createGain();
     this.gainNode.gain.value = isIOS ? 10 : 1;
 
+    // Expose the gained signal as a proper MediaStream so the backup MediaRecorder
+    // records at the boosted level (matching the VU meter), not the raw quiet signal.
+    this.ampDest = ctx.createMediaStreamDestination();
+
     // Silent sink — required in some browsers for the graph to actually process
     this.sink             = ctx.createGain();
     this.sink.gain.value  = 0;
     this.source.connect(this.gainNode);
     this.gainNode.connect(this.workletNode);
+    this.gainNode.connect(this.ampDest);    // ← backup recorder source
     this.workletNode.connect(this.sink);
     this.sink.connect(ctx.destination);
 
@@ -210,6 +223,7 @@ export class PcmCapture {
     this.workletNode = null;
     this.gainNode?.disconnect();
     this.gainNode = null;
+    this.ampDest = null; // MediaStreamDestinationNode has no disconnect needed
     this.source?.disconnect();
     this.source = null;
     this.sink?.disconnect();

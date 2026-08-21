@@ -348,9 +348,19 @@
     <span class="quick-rec-icon">⚡</span>
     <div class="quick-rec-text">
       <span class="quick-rec-title">{$langStore === 'fr' ? 'Enregistrer maintenant' : 'Record now'}</span>
-      <span class="quick-rec-sub">{$langStore === 'fr' ? 'Sans remplir — note rapide, idée, interview impro' : 'No form — quick note, idea, unplanned interview'}</span>
+      <span class="quick-rec-sub">
+        {#if loading}
+          {$langStore === 'fr' ? 'Création en cours…' : 'Starting…'}
+        {:else}
+          {$langStore === 'fr' ? 'Sans remplir — note rapide, idée, interview impro' : 'No form — quick note, idea, unplanned interview'}
+        {/if}
+      </span>
     </div>
-    <span class="quick-rec-arrow">▶</span>
+    {#if loading}
+      <span class="spinner-xs" style="margin-left:auto; flex-shrink:0"></span>
+    {:else}
+      <span class="quick-rec-arrow">▶</span>
+    {/if}
   </button>
 
   <div class="or-divider"><span>{$langStore === 'fr' ? '— ou choisir / préparer une session —' : '— or pick or prepare a session —'}</span></div>

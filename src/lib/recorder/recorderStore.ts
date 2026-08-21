@@ -615,12 +615,13 @@ export const recorderStore = {
       pcmCapture = capture;
       liveClient = client;
 
-      // Start local backup recorder on the same stream for Share Audio support.
-      // This is a local-only MediaRecorder — no second backend path.
+      // Start local backup recorder on the AMPLIFIED stream for Share Audio support.
+      // capture.amplifiedStream has the iOS gain stage applied (×10 on iOS, ×1 elsewhere)
+      // so the saved file matches what the VU meter and the transcription pipeline see.
       const backupMime = getSupportedMimeType();
-      if (backupMime && capture.stream) {
+      if (backupMime && capture.amplifiedStream) {
         try {
-          const mr = new MediaRecorder(capture.stream, { audioBitsPerSecond: 64_000, mimeType: backupMime });
+          const mr = new MediaRecorder(capture.amplifiedStream, { audioBitsPerSecond: 96_000, mimeType: backupMime });
           localBackupBlobs     = [];
           localBackupMimeType  = mr.mimeType || backupMime;
           mr.ondataavailable   = (ev) => { if (ev.data?.size > 0) localBackupBlobs.push(ev.data); };
