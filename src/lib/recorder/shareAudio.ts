@@ -37,16 +37,24 @@ export async function buildExport(sessionId: string): Promise<ExportResult> {
 
   const date = new Date(session.created_at).toISOString().slice(0, 10);
 
-  // ── Native path: merge M4A chunks via AVAssetExportSession ──────────────
+  // ── Native path: try AVAssetExportSession merge (needs files on disk) ───
+  // Falls back to IndexedDB if the native filesystem directory is missing —
+  // which is the normal case: NativeAudioRecorder delivers chunks as base64
+  // at stop() time and does not persist them to EigenChunks/{sessionId}/.
   if (isNative()) {
-    const result = await EigenAudio.mergeChunks({ sessionId });
-    const bytes   = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
-    const blob    = new Blob([bytes], { type: result.mimeType });
-    const filename = `${slugify(session.title)}_${date}.m4a`;
-    return { blob, filename, mimeType: result.mimeType, sizeBytes: result.sizeBytes };
+    try {
+      const result  = await EigenAudio.mergeChunks({ sessionId });
+      const bytes   = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
+      const blob    = new Blob([bytes], { type: result.mimeType });
+      const filename = `${slugify(session.title)}_${date}.m4a`;
+      return { blob, filename, mimeType: result.mimeType, sizeBytes: result.sizeBytes };
+    } catch (nativeErr) {
+      // Directory missing → fall through to IndexedDB blob path below.
+      console.warn('[EigenMeeting] mergeChunks: falling back to IndexedDB blobs —', nativeErr);
+    }
   }
 
-  // ── Web path: concatenate blobs (works for webm/opus) ───────────────────
+  // ── Web path (and iOS fallback): concatenate blobs from IndexedDB ────────
   const chunks = await offlineStorage.getChunksMeta(sessionId);
   if (chunks.length === 0) throw new Error('No audio chunks recorded for this session');
 
