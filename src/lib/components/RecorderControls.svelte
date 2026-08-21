@@ -211,26 +211,33 @@
 
   .saving-state {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: var(--sp-3);
-    padding: var(--sp-4) var(--sp-5);
-    min-height: 52px;
+    padding: var(--sp-5) var(--sp-6);
+    min-height: 88px; /* same height as REC button so layout doesn't shift */
   }
 
   .saving-label {
     font-family: var(--font-sans);
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    color: var(--ev-text-dim);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    color: var(--ev-text);
+    text-align: center;
   }
 
   .saving-dot {
-    width: 8px; height: 8px;
+    width: 12px; height: 12px;
     border-radius: 50%;
-    background: var(--ev-text-dim);
-    animation: pulse-dot 0.8s ease-in-out infinite;
+    background: var(--orange, #f97316);
+    animation: pulse-dot 0.9s ease-in-out infinite;
     flex-shrink: 0;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.35; transform: scale(0.6); }
   }
 </style>

@@ -155,10 +155,12 @@ export class PcmCapture {
       const idx    = this._frameIndex++;
       const startMs = idx * FRAME_DURATION_MS;
       const endMs   = startMs + FRAME_DURATION_MS;
-      // Scale RMS (0..1) into a 0..1 visual level.
-      // sqrt gives a perceptually linear response; *2.5 ensures normal speech
-      // (rms ≈ 0.05–0.15 in WKWebView) fills 50–80% of the meter.
-      this._lastLevel = Math.min(1, Math.sqrt(rms) * 2.5);
+      // dBFS-based display: floor at -50 dBFS → 0 %, 0 dBFS → 100 %.
+      // Normal speech (-25 to -10 dBFS) → 50–80 %.  Silence / no-signal → 0 %.
+      // More honest than sqrt*K because each 10 dB step moves the needle by the
+      // same visual distance, matching how ears perceive loudness.
+      const dB = rms > 1e-7 ? 20 * Math.log10(rms) : -120;
+      this._lastLevel = Math.max(0, Math.min(1, (dB + 50) / 50));
       this.onLevel?.(this._lastLevel);
       this.onFrame?.(pcm, idx, startMs, endMs);
     };

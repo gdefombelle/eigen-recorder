@@ -23,16 +23,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             locationManager.requestWhenInUseAuthorization()
         }
 
-        // Initial audio session — plugin will override when recording starts
-        do {
-            try AVAudioSession.sharedInstance().setCategory(
-                .record,
-                mode: .measurement,
-                options: [.allowBluetooth]
-            )
-        } catch {
-            print("[EigenMeeting] AVAudioSession init error: \(error)")
-        }
+        // Do NOT pre-configure AVAudioSession here.
+        // Setting .record/.measurement at launch blocks the WebKit AudioComponentRegistrar,
+        // causing getUserMedia (PCM stream mode) to capture near-silent audio.
+        // EigenAudioPlugin.startRecording() configures the session when native recording starts.
+        // WKWebView configures it itself for getUserMedia in stream mode.
 
         return true
     }
