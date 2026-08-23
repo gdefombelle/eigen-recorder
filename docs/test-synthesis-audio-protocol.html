@@ -1,0 +1,628 @@
+<title>Eigen Meeting — Test Synthesis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Montserrat:wght@700;800&family=JetBrains+Mono:wght@400;500&display=swap" />
+
+<style>
+  :root {
+    --bg:        #0a0a0a;
+    --bg-1:      #111111;
+    --bg-2:      #161616;
+    --bg-3:      #1c1c1c;
+    --border:    rgba(255,255,255,0.07);
+    --border-m:  rgba(255,255,255,0.12);
+    --text:      #f0f0f0;
+    --text-dim:  rgba(255,255,255,0.62);
+    --text-muted:rgba(255,255,255,0.38);
+    --blue:      #9ad1ff;
+    --blue-dim:  rgba(154,209,255,0.10);
+    --green:     #46a758;
+    --green-dim: rgba(70,167,88,0.12);
+    --red:       #e5484d;
+    --red-dim:   rgba(229,72,77,0.12);
+    --orange:    #f59e0b;
+    --orange-dim:rgba(245,158,11,0.12);
+    --r:         6px;
+    --r-lg:      10px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Barlow', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 24px 80px;
+  }
+
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ── */
+  .doc-header {
+    border-bottom: 1px solid var(--border-m);
+    padding-bottom: 24px;
+    margin-bottom: 40px;
+  }
+  .doc-eyebrow {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin-bottom: 8px;
+  }
+  .doc-title {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text);
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .doc-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ── Sections ── */
+  .section {
+    margin-bottom: 40px;
+  }
+  .section-title {
+    font-family: 'Montserrat', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 16px 20px;
+    margin-bottom: 10px;
+  }
+  .card-title {
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .card-body {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  th {
+    text-align: left;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-m);
+  }
+  td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    color: var(--text-dim);
+  }
+  tr:last-child td { border-bottom: none; }
+  td:first-child { color: var(--text); font-weight: 500; }
+  .mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--blue); }
+  .mono-dim { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+  .badge-ok     { background: var(--green-dim); color: var(--green);  border: 1px solid rgba(70,167,88,0.25); }
+  .badge-err    { background: var(--red-dim);   color: var(--red);    border: 1px solid rgba(229,72,77,0.25); }
+  .badge-warn   { background: var(--orange-dim);color: var(--orange); border: 1px solid rgba(245,158,11,0.25); }
+  .badge-info   { background: var(--blue-dim);  color: var(--blue);   border: 1px solid rgba(154,209,255,0.2); }
+
+  /* ── Code blocks ── */
+  pre {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 14px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    overflow-x: auto;
+    margin: 10px 0;
+  }
+  pre .k  { color: var(--blue); }
+  pre .v  { color: #a8e6b0; }
+  pre .c  { color: var(--text-muted); }
+  pre .p  { color: var(--orange); }
+  pre .err{ color: var(--red); }
+
+  /* ── Steps ── */
+  .steps { display: flex; flex-direction: column; gap: 6px; }
+  .step {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 10px 14px;
+  }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-3);
+    border-radius: 4px;
+    padding: 1px 6px;
+    min-width: 28px;
+    text-align: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .step-content { flex: 1; }
+  .step-method {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--orange);
+    margin-right: 6px;
+    font-weight: 500;
+  }
+  .step-path {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--blue);
+  }
+  .step-note {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 3px;
+  }
+
+  /* ── Alert boxes ── */
+  .alert {
+    border-radius: var(--r);
+    padding: 12px 16px;
+    margin: 10px 0;
+    font-size: 13px;
+    border-left: 3px solid;
+  }
+  .alert-err  { background: var(--red-dim);    border-color: var(--red);    color: #ffb3b5; }
+  .alert-ok   { background: var(--green-dim);  border-color: var(--green);  color: #a8e6b0; }
+  .alert-warn { background: var(--orange-dim); border-color: var(--orange); color: #fcd68a; }
+  .alert-info { background: var(--blue-dim);   border-color: var(--blue);   color: var(--blue); }
+  .alert strong { display: block; font-weight: 700; margin-bottom: 3px; }
+
+  /* ── Divider ── */
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  /* ── Inline code ── */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--blue);
+  }
+
+  /* ── Two col ── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 560px) { .two-col { grid-template-columns: 1fr; } }
+
+  p { color: var(--text-dim); font-size: 13px; margin-bottom: 10px; }
+  ul { padding-left: 18px; color: var(--text-dim); font-size: 13px; }
+  li { margin-bottom: 4px; }
+</style>
+
+<div class="page">
+
+  <header class="doc-header">
+    <div class="doc-eyebrow">Eigen Meeting · Client → Backend</div>
+    <h1 class="doc-title">Test Synthesis — Audio Capture Protocol</h1>
+    <div class="doc-meta">2026-08-22 · iOS 18 · Capacitor 8.3.4 · Client v0.2.0</div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title">1 · Test Matrix</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Scenario</th>
+            <th>Mode</th>
+            <th>Result</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>T2</td>
+            <td>Record Now — online</td>
+            <td><span class="badge badge-info">stream</span></td>
+            <td><span class="badge badge-ok">✓ Pass</span></td>
+            <td>PCM WebSocket + POST /stop → ✓ Synced</td>
+          </tr>
+          <tr>
+            <td>T3</td>
+            <td>Share Audio after Record Now</td>
+            <td><span class="badge badge-info">stream</span></td>
+            <td><span class="badge badge-ok">✓ Pass</span></td>
+            <td>Backup MediaRecorder blob → iOS share sheet (WebM/M4A, ~200 KB/12s)</td>
+          </tr>
+          <tr>
+            <td>T4</td>
+            <td>Record Now — airplane mode</td>
+            <td><span class="badge badge-warn">local</span></td>
+            <td><span class="badge badge-ok">✓ Pass</span></td>
+            <td>Chunks saved to IndexedDB, OFFLINE badge, N/N counter</td>
+          </tr>
+          <tr>
+            <td>T5</td>
+            <td>Offline recording → reconnect → sync</td>
+            <td><span class="badge badge-warn">local→stream</span></td>
+            <td><span class="badge badge-ok">✓ Pass</span></td>
+            <td>After client fix (see §3) — full flush succeeded, session ID returned</td>
+          </tr>
+          <tr>
+            <td>T6</td>
+            <td>Meeting flow (planned session)</td>
+            <td><span class="badge badge-info">stream</span></td>
+            <td><span class="badge badge-ok">✓ Pass</span></td>
+            <td>No regression</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title">2 · Flow A — Record Now (Online) · PCM Stream Mode</div>
+
+    <p>When the user is authenticated and online, <strong>Record Now</strong> creates a voice note and streams audio in real-time over WebSocket. No local audio chunks are uploaded via HTTP — only the backup blob is stored locally for Share Audio.</p>
+
+    <div class="steps" style="margin: 14px 0 18px;">
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-content">
+          <span class="step-method">POST</span><span class="step-path">/v1/knowledge-sessions</span>
+          <div class="step-note">Creates session — see payload A1 below</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-content">
+          <span class="step-method">POST</span><span class="step-path">/v1/knowledge-sessions/{id}/devices</span>
+          <div class="step-note">Registers recorder device — see payload A2</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-content">
+          <span class="step-method">POST</span><span class="step-path">/v1/knowledge-sessions/{id}/start</span>
+          <div class="step-note">Empty body</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">04</div>
+        <div class="step-content">
+          <span class="step-method">WS</span><span class="step-path">wss://…/v1/knowledge-sessions/{id}/devices/{dev_id}/stream</span>
+          <div class="step-note">PCM16 LE stream — see §4 for full protocol</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">05</div>
+        <div class="step-content">
+          <span class="step-method">POST</span><span class="step-path">/v1/knowledge-sessions/{id}/stop</span>
+          <div class="step-note">Empty body — success → client state = <code>synced</code></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <p style="margin-bottom:6px;color:var(--text);font-weight:600;font-size:12px;">Payload A1 — Create session (Record Now)</p>
+        <pre><span class="c">// POST /v1/knowledge-sessions</span>
+{
+  <span class="k">"title"</span>:           <span class="v">"Note 03:02 PM"</span>,
+  <span class="k">"session_type"</span>:    <span class="v">"voice_note"</span>,
+  <span class="k">"mode"</span>:            <span class="v">"online"</span>,
+  <span class="k">"knowledge_intent"</span>:<span class="v">"personal_note"</span>,
+  <span class="k">"target_type"</span>:     <span class="v">"inbox"</span>,
+  <span class="k">"workspace_id"</span>:    <span class="v">null</span>,
+  <span class="k">"project_id"</span>:      <span class="v">null</span>,
+  <span class="k">"subject"</span>:         <span class="v">null</span>,
+  <span class="k">"agenda"</span>:          <span class="v">null</span>,
+  <span class="k">"participants"</span>:    <span class="v">[]</span>,
+  <span class="k">"metadata_json"</span>: {
+    <span class="k">"recorder_surface"</span>: <span class="v">"record_now"</span>
+  }
+}</pre>
+      </div>
+      <div>
+        <p style="margin-bottom:6px;color:var(--text);font-weight:600;font-size:12px;">Payload A2 — Register device</p>
+        <pre><span class="c">// POST /v1/knowledge-sessions/{id}/devices</span>
+{
+  <span class="k">"device_name"</span>:  <span class="v">"iPhone"</span>,
+  <span class="k">"device_type"</span>:  <span class="v">"mobile"</span>,
+  <span class="k">"client_type"</span>:  <span class="v">"capacitor_ios"</span>,
+  <span class="k">"capabilities_json"</span>: {
+    <span class="k">"platform"</span>:     <span class="v">"ios"</span>,
+    <span class="k">"app_version"</span>:  <span class="v">"0.2.0"</span>,
+    <span class="k">"sample_rate"</span>:  <span class="v">16000</span>,
+    <span class="k">"codec"</span>:        <span class="v">"audio/pcm16"</span>,
+    <span class="k">"channels"</span>:     <span class="v">1</span>,
+    <span class="k">"capture_type"</span>: <span class="v">"web_mediarecorder"</span>,
+    <span class="k">"is_native"</span>:    <span class="v">true</span>
+  }
+}</pre>
+      </div>
+    </div>
+
+    <div class="alert alert-ok" style="margin-top:12px;">
+      <strong>Observations — PCM stream mode</strong>
+      108 frames streamed in a 34.6s session = 34,560 ms / 320 ms per frame ✓ · Each frame: 10,240 bytes binary Int16LE (320 ms @ 16 kHz mono) · Backend confirmed /stop → <code>synced</code> state ✓
+    </div>
+
+    <div class="alert alert-info" style="margin-top:8px;">
+      <strong>Backup blob (local only — NOT uploaded via HTTP)</strong>
+      A parallel MediaRecorder saves a local WebM/M4A blob (~200 KB for 12s) to IndexedDB with status <code>backup_only</code>. It is used only for the Share Audio action (iOS share sheet). It is never sent to /audio-chunks. The client explicitly skips <code>backup_only</code> chunks in all upload loops.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title">3 · Flow B — Record Now (Offline) → Reconnect → Sync</div>
+
+    <p>When offline (airplane mode + WiFi off), audio is saved locally as N chunks (default 5 s each) in IndexedDB. On reconnect the user triggers a manual sync. The client creates a new backend session and uploads all chunks via HTTP multipart.</p>
+
+    <div class="steps" style="margin: 14px 0 18px;">
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-content">
+          <span class="step-method">POST</span><span class="step-path">/v1/knowledge-sessions</span>
+          <div class="step-note">Creates a NEW session (same payload as A1) · <code>mode: "online"</code> even for an offline-recorded session · returns <code>{ id }</code></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-content">
+          <span class="step-method">POST</span><span class="step-path">/v1/knowledge-sessions/{id}/devices</span>
+          <div class="step-note">Same as A2</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-content">
+          <span class="step-method">POST</span><span class="step-path">/v1/knowledge-sessions/{id}/start</span>
+          <div class="step-note">Empty body</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">04</div>
+        <div class="step-content">
+          <span class="step-method">POST</span><span class="step-path">/v1/knowledge-sessions/{id}/audio-chunks</span>
+          <div class="step-note">Repeated N times (one per chunk) · multipart/form-data · see payload B1</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">05</div>
+        <div class="step-content">
+          <span class="step-method">POST</span><span class="step-path">/v1/knowledge-sessions/{id}/stop</span>
+          <div class="step-note">Empty body</div>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-bottom:6px;color:var(--text);font-weight:600;font-size:12px;">Payload B1 — Audio chunk upload (multipart/form-data)</p>
+    <pre><span class="c">// POST /v1/knowledge-sessions/{id}/audio-chunks</span>
+<span class="c">// Content-Type: multipart/form-data (boundary set by browser)</span>
+
+audio            → &lt;Blob&gt;      chunk_0000.webm  <span class="c">// audio/webm;codecs=opus on iOS web</span>
+                               chunk_0000.caf   <span class="c">// audio/x-caf on iOS native recorder</span>
+device_id        → &lt;string&gt;   "dev-uuid…"
+chunk_index      → &lt;integer&gt;  0                <span class="c">// 0-based</span>
+start_ms         → &lt;integer&gt;  0
+end_ms           → &lt;integer&gt;  5001             <span class="c">// Math.round() applied — see §3.1</span>
+mime_type        → &lt;string&gt;   "audio/webm;codecs=opus"
+size_bytes       → &lt;integer&gt;  118432
+local_session_id → &lt;string&gt;   "local-uuid…"   <span class="c">// client-side ID, for idempotency</span></pre>
+
+    <div class="alert alert-err" style="margin-top:12px;">
+      <strong>Error encountered (now fixed client-side) — T5</strong>
+      <code>Sync failed at "upload chunk 0": Input should be a valid integer, unable to parse string as an integer</code> (×2)
+      <br><br>
+      <strong>Root cause:</strong> On iOS, NativeAudioRecorder (AVAudioEngine) returns <code>startMs</code>/<code>endMs</code> as Swift <code>Double</code> values (e.g. <code>5001.5</code>). FormData serializes them as <code>"5001.5"</code>, which FastAPI's integer validator rejects.
+      <br><br>
+      <strong>Client fix applied:</strong> <code>Math.round()</code> on all integer form fields before <code>form.append()</code> in <code>uploadAudioChunk()</code>. The backend received clean strings like <code>"5001"</code>, accepted them, and the sync succeeded.
+    </div>
+
+    <div class="alert alert-warn" style="margin-top:8px;">
+      <strong>Backend recommendation</strong>
+      Consider accepting form integer fields with lax coercion (Pydantic <code>model_config = ConfigDict(coerce_numbers_to_str=False)</code> / standard lax mode) so that <code>"5001.5"</code> rounds to <code>5001</code> server-side as a safety net. The client now sends clean integers, but defensive handling costs nothing.
+    </div>
+
+    <div class="alert alert-info" style="margin-top:8px;">
+      <strong>Important: session_type mapping for offline flush</strong>
+      Client-side sessions of type <code>free_recording</code> are mapped to <code>voice_note</code> on the wire (POST /knowledge-sessions) for the offline flush path. This is intentional — <code>free_recording</code> is a client-only concept for "Record Now without filling a form".
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title">4 · WebSocket PCM Stream Protocol</div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Step</th><th>Direction</th><th>Message</th><th>Details</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>Client → Server</td>
+            <td><span class="mono">session_hello</span> (JSON)</td>
+            <td class="mono-dim">{ type: "session_hello", session_id, device_id }</td>
+          </tr>
+          <tr>
+            <td>2 × N</td>
+            <td>Client → Server</td>
+            <td><span class="mono">audio_frame_meta</span> (JSON)</td>
+            <td class="mono-dim">{ type: "audio_frame_meta", frame_index, timestamp_ms, duration_ms: 320, sample_rate: 16000, channels: 1, encoding: "pcm16le", byte_count: 10240 }</td>
+          </tr>
+          <tr>
+            <td>2 × N</td>
+            <td>Client → Server</td>
+            <td>Binary frame</td>
+            <td class="mono-dim">10,240 bytes · Int16 LE · mono 16 kHz · 320 ms/frame · ~108 frames/35 s</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td>Client → Server</td>
+            <td><span class="mono">session_commit</span> (JSON)</td>
+            <td class="mono-dim">{ type: "session_commit", total_frames, total_bytes }</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>Client → Server</td>
+            <td>WS close(1000)</td>
+            <td class="mono-dim">Normal closure · followed immediately by POST /stop</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="alert alert-info" style="margin-top:12px;">
+      <strong>PCM capture pipeline (client-side)</strong>
+      <code>getUserMedia</code> → <code>AudioContext</code> @ 16 kHz → <code>GainNode</code> (×10 on iOS for usable levels) → <code>AudioWorkletNode</code> → <code>LiveStreamClient</code> (WebSocket). Fire-and-forget — no per-frame ACK expected from server. The WebSocket is kept open for the full session duration.
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title">5 · Audio Formats Observed on iOS</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Path</th><th>Recorder</th><th>Format</th><th>Sample rate</th><th>Channels</th><th>Typical size</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>PCM stream</td>
+            <td>AudioWorklet</td>
+            <td><span class="mono">Int16 LE</span></td>
+            <td class="mono-dim">16 000 Hz</td>
+            <td class="mono-dim">1 (mono)</td>
+            <td class="mono-dim">10 240 B/frame</td>
+          </tr>
+          <tr>
+            <td>Backup blob (stream mode)</td>
+            <td>MediaRecorder (web)</td>
+            <td><span class="mono">audio/webm;codecs=opus</span></td>
+            <td class="mono-dim">48 000 Hz</td>
+            <td class="mono-dim">1</td>
+            <td class="mono-dim">~200 KB/12 s</td>
+          </tr>
+          <tr>
+            <td>Offline chunks (local mode, web)</td>
+            <td>MediaRecorder (web)</td>
+            <td><span class="mono">audio/webm;codecs=opus</span></td>
+            <td class="mono-dim">48 000 Hz</td>
+            <td class="mono-dim">1</td>
+            <td class="mono-dim">~118 KB/5 s chunk</td>
+          </tr>
+          <tr>
+            <td>Offline chunks (local mode, native)</td>
+            <td>NativeAudioRecorder (AVAudioEngine)</td>
+            <td><span class="mono">audio/x-caf</span></td>
+            <td class="mono-dim">48 000 Hz</td>
+            <td class="mono-dim">2 (stereo)</td>
+            <td class="mono-dim">~470 KB/18 s session</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title">6 · Backend Action Items</div>
+
+    <div class="card" style="border-left: 3px solid var(--orange);">
+      <div class="card-title">⚠ Integer fields in multipart — defensive coercion</div>
+      <div class="card-body">Fields <code>chunk_index</code>, <code>start_ms</code>, <code>end_ms</code>, <code>size_bytes</code> arrive as strings in multipart/form-data (browser spec). FastAPI's Pydantic validator correctly coerces <code>"5001"</code> → <code>5001</code>. Client now sends clean integer strings (Math.round applied). Recommend keeping standard lax coercion enabled as a safety net for future clients.</div>
+    </div>
+
+    <div class="card" style="border-left: 3px solid var(--blue);">
+      <div class="card-title">ℹ <code>voice_note</code> session_type — confirmed working</div>
+      <div class="card-body">The offline flush path POSTs <code>session_type: "voice_note"</code> to create a session. This was suspected as a possible enum validation failure earlier (original error was "[object Object]" — unreadable). After fixing error serialization on the client, the actual error was revealed to be the integer issue above. <code>voice_note</code> itself is accepted by the backend.</div>
+    </div>
+
+    <div class="card" style="border-left: 3px solid var(--blue);">
+      <div class="card-title">ℹ <code>audio/x-caf</code> chunks from iOS native recorder</div>
+      <div class="card-body">When the app uses the native iOS recorder (AVAudioEngine), offline chunks arrive as <code>audio/x-caf</code> stereo 48 kHz. The backend /audio-chunks endpoint should support this mime type in addition to <code>audio/webm</code>. The client sends <code>mime_type</code> in the form data for server-side routing.</div>
+    </div>
+
+    <div class="card" style="border-left: 3px solid var(--green);">
+      <div class="card-title">✓ <code>local_session_id</code> field in /audio-chunks</div>
+      <div class="card-body">The client sends a <code>local_session_id</code> (client-generated UUID) alongside each chunk. This is intended for idempotency — if a sync is retried, the backend can deduplicate chunks by this ID. No retry logic is implemented on the client yet, but the field is always present.</div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section class="section">
+    <div class="section-title">7 · Error Handling — FastAPI Validation Errors</div>
+    <p>FastAPI returns validation errors as:</p>
+    <pre><span class="c">// HTTP 422 — body structure</span>
+{
+  <span class="k">"detail"</span>: [
+    { <span class="k">"type"</span>: <span class="v">"int_parsing"</span>, <span class="k">"loc"</span>: [<span class="v">"body"</span>, <span class="v">"start_ms"</span>], <span class="k">"msg"</span>: <span class="v">"Input should be a valid integer…"</span>, <span class="k">"input"</span>: <span class="v">"5001.5"</span> },
+    { <span class="k">"type"</span>: <span class="v">"int_parsing"</span>, <span class="k">"loc"</span>: [<span class="v">"body"</span>, <span class="v">"end_ms"</span>],   <span class="k">"msg"</span>: <span class="v">"Input should be a valid integer…"</span>, <span class="k">"input"</span>: <span class="v">"18400.7"</span> }
+  ]
+}</pre>
+    <p>The client now serializes <code>detail</code> arrays by joining <code>.msg</code> fields with <code>; </code>, producing readable error messages. Error attribution by step ("Sync failed at <em>step</em>: <em>message</em>") was also added to the offline flush flow.</p>
+  </section>
+
+  <hr>
+  <p style="font-size:11px;color:var(--text-muted);text-align:center;">Eigen Meeting · Client v0.2.0 · gdefombelle · 2026-08-22</p>
+
+</div>

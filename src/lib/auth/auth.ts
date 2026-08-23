@@ -6,10 +6,13 @@ import { writable, get } from 'svelte/store';
 const TOKEN_KEY = 'ev_token';
 
 export interface EVUser {
-  readonly token:     string;
-  readonly email:     string;
-  readonly name?:     string;
-  readonly expiresAt: number; // Unix ms
+  readonly token:             string;
+  readonly email:             string;
+  readonly name?:             string;
+  readonly expiresAt:         number; // Unix ms
+  // PKCE fields — present after OAuth 2.1 login, absent for legacy password sessions
+  readonly refreshToken?:      string;
+  readonly rotationFamilyId?:  string;
 }
 
 const _user = writable<EVUser | null>(null);

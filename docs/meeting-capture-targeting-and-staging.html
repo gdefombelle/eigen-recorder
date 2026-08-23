@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Contrat produit et technique pour le ciblage des captures Eigen Meeting, les réunions et le staging.">
+  <title>Eigen Meeting - Cible de connaissance et staging</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper:#f5f5f5; --surface:#fff; --ink:#2d3142; --muted:#4f5d75; --soft:#7a8399;
+      --rule:rgba(45,49,66,.14); --accent:#eb6c36; --accent-tint:#fff0e8;
+      --link:#2e5aa8; --green:#1f7553; --green-tint:#eaf6ef; --blue-tint:#edf3ff;
+      --mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace; --sans:'Geist',system-ui,sans-serif;
+      --serif:'Instrument Serif',Georgia,serif;
+    }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.65; }
+    main { max-width:1120px; margin:0 auto; padding:64px 32px 96px; }
+    .eyebrow, .tag, .section-kicker, code, pre, th { font-family:var(--mono); }
+    .eyebrow { color:var(--accent); font-size:12px; letter-spacing:.16em; text-transform:uppercase; }
+    h1 { font:400 clamp(42px,6vw,72px)/.98 var(--serif); letter-spacing:-.02em; margin:18px 0 18px; max-width:850px; }
+    h2 { font-size:26px; line-height:1.15; margin:0 0 16px; letter-spacing:-.02em; }
+    h3 { font-size:17px; margin:0 0 8px; }
+    p { max-width:76ch; }
+    .lede { font-size:18px; color:var(--muted); max-width:740px; }
+    .meta { display:flex; flex-wrap:wrap; gap:8px; margin-top:26px; }
+    .tag { border:1px solid var(--rule); padding:5px 8px; border-radius:4px; color:var(--muted); font-size:11px; letter-spacing:.06em; text-transform:uppercase; background:rgba(255,255,255,.55); }
+    .hero { border-bottom:1px solid var(--rule); padding-bottom:48px; margin-bottom:52px; }
+    section { margin:0 0 58px; }
+    .section-kicker { color:var(--soft); font-size:11px; letter-spacing:.14em; text-transform:uppercase; border-bottom:1px solid var(--rule); padding-bottom:9px; margin-bottom:22px; }
+    .callout { border-left:3px solid var(--accent); background:var(--accent-tint); padding:18px 20px; margin:20px 0; }
+    .callout strong { display:block; margin-bottom:4px; }
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+    .grid.two { grid-template-columns:repeat(2,1fr); }
+    .card { background:var(--surface); border:1px solid var(--rule); border-radius:8px; padding:20px; }
+    .card.project { border-top:3px solid var(--link); }
+    .card.corpus { border-top:3px solid var(--green); }
+    .card.inbox { border-top:3px solid var(--accent); }
+    .card p, .card li { font-size:14px; color:var(--muted); }
+    ul, ol { padding-left:22px; }
+    li + li { margin-top:5px; }
+    code { background:#eceef4; padding:2px 5px; border-radius:3px; font-size:.88em; }
+    pre { background:#202535; color:#edf1f8; padding:18px; border-radius:6px; overflow:auto; font-size:12px; line-height:1.6; }
+    table { width:100%; border-collapse:collapse; background:var(--surface); font-size:14px; }
+    th, td { text-align:left; vertical-align:top; padding:11px 12px; border-bottom:1px solid var(--rule); }
+    th { color:var(--muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:500; }
+    .diagram-wrap { background:var(--surface); border:1px solid var(--rule); border-radius:8px; padding:18px 14px 10px; overflow-x:auto; }
+    .diagram-wrap svg { display:block; width:100%; min-width:760px; height:auto; }
+    .diagram-title { font-family:var(--mono); color:var(--muted); font-size:11px; letter-spacing:.12em; text-transform:uppercase; margin:0 6px 12px; }
+    .svg-label { font:600 14px var(--sans); fill:var(--ink); }
+    .svg-small { font:11px var(--mono); fill:var(--muted); }
+    .svg-kicker { font:9px var(--mono); letter-spacing:.12em; fill:var(--soft); }
+    .svg-note { font:italic 14px var(--serif); fill:var(--muted); }
+    .flow-line { fill:none; stroke:var(--muted); stroke-width:1.5; marker-end:url(#arrow); }
+    .flow-line.accent { stroke:var(--accent); marker-end:url(#arrow-accent); }
+    .flow-line.dashed { stroke-dasharray:5 4; }
+    .node { fill:var(--surface); stroke:var(--ink); stroke-width:1.2; }
+    .node.focal { fill:var(--accent-tint); stroke:var(--accent); stroke-width:1.5; }
+    .node.store { fill:rgba(45,49,66,.05); stroke:var(--muted); }
+    .node.boundary { fill:var(--blue-tint); stroke:var(--link); stroke-dasharray:5 4; }
+    .legend { border-top:1px solid var(--rule); margin-top:10px; padding:12px 6px 2px; color:var(--muted); font:11px var(--mono); display:flex; flex-wrap:wrap; gap:18px; }
+    .legend span { display:inline-flex; align-items:center; gap:6px; }
+    .legend i { display:inline-block; width:24px; height:2px; background:var(--muted); }
+    .legend i.accent { background:var(--accent); }
+    .legend i.dashed { background:linear-gradient(90deg,var(--muted) 60%,transparent 60%); background-size:7px 2px; }
+    .footer { border-top:1px solid var(--rule); padding-top:20px; color:var(--soft); font-size:13px; }
+    @media (max-width:780px) { main{padding:36px 18px 64px}.grid,.grid.two{grid-template-columns:1fr} h1{font-size:48px}.lede{font-size:16px} }
+    @media print { body{background:#fff} main{padding:24px} .diagram-wrap,.card,table,pre{break-inside:avoid} }
+  </style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <div class="eyebrow">Eigen Meeting · produit & architecture</div>
+    <h1>Cible de connaissance, réunions et staging des captures</h1>
+    <p class="lede">Une capture n'est pas routée selon la surface qui l'a produite. Elle est routée selon son intention, sa cible et sa politique de promotion.</p>
+    <div class="meta"><span class="tag">Version 1.0</span><span class="tag">20 août 2026</span><span class="tag">Proposition de contrat</span></div>
+  </header>
+
+  <section>
+    <div class="section-kicker">01 · décision structurante</div>
+    <h2>Capturer d'abord, classer ensuite si nécessaire</h2>
+    <p>La <code>KnowledgeSession</code> est l'objet canonique de capture. Elle peut être créée avant que la cible soit connue ; dans ce cas elle vit dans le staging du workspace avec <code>target_type = inbox</code>.</p>
+    <div class="callout"><strong>Règle centrale</strong>Une réunion opérationnelle ne devient pas automatiquement un document canonique du corpus. Un entretien expert devient d'abord un document candidat. Une note improvisée reste privée et non indexée tant qu'elle n'est pas classée.</div>
+    <table>
+      <thead><tr><th>Propriété</th><th>Question</th><th>Exemples</th></tr></thead>
+      <tbody>
+        <tr><td><code>capture_kind</code></td><td>Qu'est-ce qui est capté ?</td><td><code>meeting</code>, <code>expert_interview</code>, <code>voice_note</code></td></tr>
+        <tr><td><code>knowledge_intent</code></td><td>Pourquoi ?</td><td><code>operate_project</code>, <code>collect_knowledge</code>, <code>undecided</code></td></tr>
+        <tr><td><code>target_type</code></td><td>Où le contenu doit-il vivre ?</td><td><code>project</code>, <code>corpus</code>, <code>inbox</code></td></tr>
+        <tr><td><code>promotion_policy</code></td><td>Que fait-on du contenu produit ?</td><td><code>project_outputs</code>, <code>corpus_candidate</code>, <code>private_until_review</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <div class="section-kicker">02 · résolution de la cible</div>
+    <h2>Projet, corpus ou inbox</h2>
+    <div class="diagram-wrap">
+      <div class="diagram-title">Flowchart · décision de routage</div>
+      <svg viewBox="0 0 1040 300" role="img" aria-labelledby="flow-title flow-desc">
+        <title id="flow-title">Décision de routage d'une session</title><desc id="flow-desc">Une session est dirigée vers le corpus principal du projet, vers un corpus choisi, ou vers le staging inbox.</desc>
+        <defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#eb6c36"/></marker></defs>
+        <path class="flow-line accent" d="M160 140 H260"/><path class="flow-line" d="M430 140 H520 V76 H620"/><path class="flow-line" d="M430 140 H520 V204 H620"/><path class="flow-line dashed" d="M350 184 V260 H620"/>
+        <rect class="node focal" x="40" y="112" width="120" height="56" rx="6"/><text class="svg-kicker" x="52" y="130">INPUT</text><text class="svg-label" x="100" y="154" text-anchor="middle">Capture</text>
+        <rect class="node" x="260" y="104" width="170" height="72" rx="6"/><text class="svg-kicker" x="276" y="123">RESOLUTION</text><text class="svg-label" x="345" y="148" text-anchor="middle">Cible connue ?</text><text class="svg-small" x="345" y="164" text-anchor="middle">projet / corpus / aucune</text>
+        <rect class="node boundary" x="620" y="40" width="190" height="72" rx="6"/><text class="svg-kicker" x="636" y="59">PROJECT</text><text class="svg-label" x="715" y="84" text-anchor="middle">Projet sélectionné</text><text class="svg-small" x="715" y="100" text-anchor="middle">→ corpus principal résolu</text>
+        <rect class="node store" x="620" y="168" width="190" height="72" rx="6"/><text class="svg-kicker" x="636" y="187">CORPUS</text><text class="svg-label" x="715" y="212" text-anchor="middle">Corpus choisi</text><text class="svg-small" x="715" y="228" text-anchor="middle">sans projet obligatoire</text>
+        <rect class="node" x="620" y="252" width="190" height="36" rx="6"/><text class="svg-label" x="715" y="275" text-anchor="middle">Inbox / staging</text>
+        <text class="svg-note" x="860" y="78">sorties projet</text><text class="svg-note" x="860" y="207">candidat documentaire</text><text class="svg-note" x="860" y="276">jamais indexé seul</text>
+      </svg>
+      <div class="legend"><span><i class="accent"></i>flux principal</span><span><i></i>cible explicite</span><span><i class="dashed"></i>cible inconnue / staging</span></div>
+    </div>
+    <p><strong>Règle projet :</strong> si un projet est choisi, le serveur résout son corpus principal. Le client ne doit pas dupliquer cette logique. Si projet et corpus sont fournis ensemble, l'incohérence est refusée ou confirmée explicitement ; aucune association silencieuse n'est permise.</p>
+  </section>
+
+  <section>
+    <div class="section-kicker">03 · trois scénarios</div>
+    <div class="grid">
+      <article class="card project"><h3>Réunion prévue</h3><p><code>meeting</code> · <code>operate_project</code> · <code>project_outputs</code></p><ol><li>Meeting, projet, agenda et participants préremplis.</li><li>Copilot produit décisions, actions, questions et mises à jour.</li><li>Le transcript brut reste lié à la session.</li><li>Promotion dans le corpus uniquement sur action explicite.</li></ol></article>
+      <article class="card corpus"><h3>Entretien d'expert</h3><p><code>expert_interview</code> · <code>collect_knowledge</code> · <code>corpus_candidate</code></p><ol><li>Corpus choisi directement ou résolu depuis le projet.</li><li>Transcript conservé comme preuve de provenance.</li><li>Document candidat : synthèse, affirmations, vérifications, timestamps.</li><li>Revue avant indexation durable.</li></ol></article>
+      <article class="card inbox"><h3>Note improvisée</h3><p><code>voice_note</code> · <code>undecided</code> · <code>private_until_review</code></p><ol><li><code>Record now</code> crée une session inbox.</li><li>Offline : audio et métadonnées restent dans IndexedDB.</li><li>À la reconnexion : <code>staged_unassigned</code>.</li><li>Classer, garder privé, fusionner, archiver ou rejeter.</li></ol></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-kicker">04 · staging</div>
+    <h2>Une file de décision, pas un corpus caché</h2>
+    <div class="diagram-wrap">
+      <div class="diagram-title">State machine · cycle de classement</div>
+      <svg viewBox="0 0 1040 220" role="img" aria-labelledby="state-title state-desc">
+        <title id="state-title">Cycle de classement d'une session</title><desc id="state-desc">Une session passe de la capture à la synchronisation puis au staging, avant promotion, conservation privée, rejet ou archivage.</desc>
+        <defs><marker id="state-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#4f5d75"/></marker></defs>
+        <path class="flow-line" marker-end="url(#state-arrow)" d="M148 92 H208"/><path class="flow-line" marker-end="url(#state-arrow)" d="M350 92 H410"/><path class="flow-line accent" d="M552 92 H612"/><path class="flow-line" marker-end="url(#state-arrow)" d="M754 92 H814"/>
+        <path class="flow-line" marker-end="url(#state-arrow)" d="M884 62 V28 H924"/><path class="flow-line dashed" marker-end="url(#state-arrow)" d="M884 122 V168 H924"/>
+        <rect class="node" x="24" y="64" width="124" height="56" rx="6"/><text class="svg-label" x="86" y="88" text-anchor="middle">Capture</text><text class="svg-small" x="86" y="104" text-anchor="middle">draft / recording</text>
+        <rect class="node" x="208" y="64" width="142" height="56" rx="6"/><text class="svg-label" x="279" y="88" text-anchor="middle">Captured</text><text class="svg-small" x="279" y="104" text-anchor="middle">audio + transcript</text>
+        <rect class="node" x="410" y="64" width="142" height="56" rx="6"/><text class="svg-label" x="481" y="88" text-anchor="middle">Syncing</text><text class="svg-small" x="481" y="104" text-anchor="middle">online ou reprise</text>
+        <rect class="node focal" x="612" y="64" width="142" height="56" rx="6"/><text class="svg-label" x="683" y="88" text-anchor="middle">Staging</text><text class="svg-small" x="683" y="104" text-anchor="middle">cible à confirmer</text>
+        <rect class="node store" x="814" y="64" width="142" height="56" rx="6"/><text class="svg-label" x="885" y="88" text-anchor="middle">Classified</text><text class="svg-small" x="885" y="104" text-anchor="middle">cible verrouillée</text>
+        <rect class="node" x="924" y="4" width="100" height="40" rx="6"/><text class="svg-label" x="974" y="29" text-anchor="middle">Promoted</text>
+        <rect class="node" x="924" y="148" width="100" height="40" rx="6"/><text class="svg-label" x="974" y="173" text-anchor="middle">Private / reject</text>
+      </svg>
+      <div class="legend"><span><i class="accent"></i>point de décision</span><span><i></i>état confirmé</span><span><i class="dashed"></i>sortie sans indexation</span></div>
+    </div>
+    <p>Les statuts techniques de capture (<code>recording</code>, <code>paused</code>, <code>processing_live</code>, <code>processing_offline</code>, <code>completed</code>) restent distincts des statuts métier de classement.</p>
+  </section>
+
+  <section>
+    <div class="section-kicker">05 · contrat de données</div>
+    <h2>Champs à ajouter à <code>KnowledgeSession</code></h2>
+    <table><thead><tr><th>Champ</th><th>Type</th><th>Rôle</th></tr></thead><tbody>
+      <tr><td><code>capture_kind</code></td><td>enum</td><td>meeting, expert_interview, voice_note, other</td></tr>
+      <tr><td><code>knowledge_intent</code></td><td>enum</td><td>operate_project, collect_knowledge, personal_note, undecided</td></tr>
+      <tr><td><code>target_type</code></td><td>enum</td><td>project, corpus, inbox</td></tr>
+      <tr><td><code>target_corpus_id</code></td><td>UUID nullable</td><td>Corpus primaire résolu ou choisi</td></tr>
+      <tr><td><code>staging_status</code></td><td>enum</td><td>État métier de promotion</td></tr>
+      <tr><td><code>promotion_policy</code></td><td>enum</td><td>Sorties projet, candidat corpus ou privé</td></tr>
+      <tr><td><code>planned_meeting_id</code></td><td>UUID nullable</td><td>Meeting planifié, distinct de la session exécutée</td></tr>
+      <tr><td><code>target_locked_at/by</code></td><td>datetime / UUID</td><td>Confirmation de la cible</td></tr>
+      <tr><td><code>classification_json</code></td><td>JSON</td><td>Suggestion, score et justification ; jamais vérité canonique</td></tr>
+    </tbody></table>
+    <p>Transition possible : stocker temporairement ces champs dans <code>metadata_json.capture_routing</code>, mais exposer ensuite un contrat typé dans les API.</p>
+  </section>
+
+  <section>
+    <div class="section-kicker">06 · API et garde-fous</div>
+    <div class="grid two">
+      <article class="card"><h3>API</h3><ul><li><code>POST /v1/knowledge-sessions</code> accepte intention et cible.</li><li><code>recorder-sync</code> complète la cible tant qu'elle n'est pas verrouillée.</li><li><code>classify</code>, <code>promote-to-project</code>, <code>promote-to-corpus</code>.</li><li><code>keep-private</code>, <code>reject</code>, audit et provenance.</li></ul></article>
+      <article class="card"><h3>Règles de non-ambiguïté</h3><ul><li>La surface ne détermine jamais la destination.</li><li><code>session_type</code> ne suffit jamais à promouvoir.</li><li>Le workspace n'est jamais un corpus par défaut.</li><li>Une cible suggérée par un modèle doit être confirmée.</li><li>Une session inbox n'est jamais visible dans la recherche corpus.</li></ul></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-kicker">07 · priorité et validation</div>
+    <div class="grid two">
+      <article class="card"><h3>P0 · verrouiller le contrat</h3><ul><li>Enums et champs de ciblage.</li><li>Résolution serveur projet → corpus principal.</li><li><code>staged_unassigned</code>.</li><li><code>Record now</code> sans cible.</li><li>Interdire l'indexation d'une inbox.</li></ul></article>
+      <article class="card"><h3>P1 / P2 · rendre la revue opérable</h3><ul><li>Page staging workspace et documents candidats.</li><li>Promotion, privé, rejet, provenance.</li><li>Reprise IndexedDB après crash.</li><li>Suggestions projet/corpus avec confirmation.</li><li>Détection des doublons.</li></ul></article>
+    </div>
+    <div class="callout"><strong>Critère de réussite</strong>Les quatre tests fondamentaux doivent passer : meeting planifié avec projet ; entretien expert avec corpus ; <code>Record now</code> authentifié ; <code>Record now</code> offline puis synchronisé en <code>staged_unassigned</code>.</div>
+  </section>
+
+  <section>
+    <div class="section-kicker">08 · Eigen Companion</div>
+    <h2>La session planifiée reste canonique</h2>
+    <div class="callout"><strong>Réponse de référence pour la suite du développement</strong>Comme le dock web, Eigen Companion rejoint la session planifiée comme un appareil de capture. Il ne remplace pas son titre, son lieu, son projet, son agenda ni ses participants.</div>
+    <div class="grid two">
+      <article class="card"><h3>Ce que Companion peut ajouter</h3><ul><li>Nom et capacités de l'ordinateur.</li><li>Qualité micro et état réseau.</li><li>Localisation effectivement observée.</li><li>Participants distants détectés.</li><li>Événements et traces propres à la capture.</li></ul></article>
+      <article class="card"><h3>Ce qu'il ne doit pas écraser</h3><ul><li>Titre et projet planifiés.</li><li>Lieu et agenda métier.</li><li>Participants de la réunion.</li><li>Cible projet/corpus déjà verrouillée.</li><li>Rattachement canonique de la session.</li></ul></article>
+    </div>
+    <pre>{
+  "session_id": "planned-session-id",
+  "recorder_join_mode": "canonical",
+  "recorder_surface": "eigen_companion",
+  "device_name": "Gabriel's MacBook",
+  "observed_location": { "label": "Paris", "source": "companion" }
+}</pre>
+    <p>Le backend reconnaît <code>metadata_json.recorder_join_mode = "canonical"</code> sur <code>recorder-sync</code>. Les observations propres au recorder sont conservées avec leur source ; le contexte planifié reste inchangé. Toute modification volontaire de projet ou de corpus intervient ensuite comme action de classement explicite.</p>
+  </section>
+
+  <footer class="footer">
+    <p><strong>Sources et périmètre.</strong> La présente spécification s'appuie sur l'architecture Eigen Meeting pour les surfaces iOS/PWA/web, la <code>KnowledgeSession</code>, les chemins stream et offline-first, IndexedDB et la synchronisation. Elle ajoute les règles métier de routage, staging et promotion.</p>
+    <p>Version HTML autonome · eigen-recorder/docs</p>
+  </footer>
+</main>
+</body>
+</html>

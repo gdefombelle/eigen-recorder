@@ -3,7 +3,8 @@
   import type { Snippet } from 'svelte';
   import { onMount } from 'svelte';
   import { recorderStore } from '$lib/recorder/recorderStore';
-  import { initAuth } from '$lib/auth/auth';
+  import { initAuth, isAuthenticated } from '$lib/auth/auth';
+  import { silentRefresh } from '$lib/auth/pkceFlow';
   import { loadConfig } from '$lib/auth/config';
   import { loadLang, langStore, t } from '$lib/i18n/index';
   import { page } from '$app/stores';
@@ -25,6 +26,8 @@
     initAuth();
     loadLang();
     recorderStore.init();
+    // If no valid access token but a refresh token may exist → silent refresh
+    if (!isAuthenticated()) silentRefresh().catch(() => {/* ignore */});
   });
 
   let currentPath = $derived($page.url.pathname);

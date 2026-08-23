@@ -194,7 +194,7 @@
       {/if}
     </div>
 
-    <!-- EigenVertex mark -->
+    <!-- EigenVertex mark — sized to stay within the hero's right edge (no overflow). -->
     <div class="hero-mark" aria-hidden="true">
       <svg viewBox="0 0 140 140" fill="none">
         <polygon points="70,4 136,70 70,136 4,70"   stroke="#9ad1ff" stroke-width="1.5" opacity="0.14"/>
@@ -360,7 +360,7 @@
     <section class="final-cta">
       <div class="account-welcome">
         <div class="welcome-avatar">{user?.email?.[0]?.toUpperCase() ?? '?'}</div>
-        <div>
+        <div class="welcome-text">
           <h2>{isFr ? `Bienvenue, ${user?.name ?? user?.email} !` : `Welcome, ${user?.name ?? user?.email}!`}</h2>
           <p>{isFr ? 'Vous êtes connecté. Commencez à enregistrer.' : 'You are signed in. Start recording.'}</p>
         </div>
@@ -407,9 +407,15 @@
     display: flex;
     align-items: center;
     padding: var(--sp-8) 0;
-    overflow: hidden;
+    /* No overflow on .hero — hero-mark is sized to never overflow (see .hero-mark). */
   }
-  .hero-inner { position: relative; z-index: 1; max-width: 500px; width: 100%; }
+  .hero-inner {
+    position: relative;
+    z-index: 1;
+    max-width: 500px;
+    width: 100%;
+    min-width: 0; /* flex item — prevents min-width:auto overflow in WebKit */
+  }
 
   .hero-topbar {
     display: flex;
@@ -424,7 +430,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    min-width: 0;
+    flex: 1;       /* grow to fill available space */
+    min-width: 0;  /* allow shrink below content size */
     font-family: var(--font-display);
     font-weight: 700;
     font-size: 0.9rem;
@@ -440,11 +447,14 @@
 
   .hero-mark {
     position: absolute;
-    right: -80px;
+    /* right:0 + width:min(300px,85%) ensures the box NEVER overflows .hero's right edge.
+       WebKit propagates abs-pos scroll-width through overflow:hidden boundaries, so
+       the only reliable containment is to avoid the overflow entirely. */
+    right: 0;
     top: 50%;
     transform: translateY(-50%);
-    width: 340px;
-    height: 340px;
+    width: min(300px, 85%);
+    height: min(300px, 85%);
     pointer-events: none;
     z-index: 0;
   }
@@ -452,7 +462,9 @@
   .badge {
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;          /* allow text to wrap on narrow screens */
     gap: 6px;
+    max-width: 100%;          /* never wider than hero-inner — prevents scroll-width inflation */
     margin: 0 0 var(--sp-4);
     padding: 5px 12px;
     background: var(--ev-blue-bg);
@@ -752,7 +764,13 @@
     max-width: 460px;
   }
 
-  .account-welcome { display: flex; align-items: center; gap: var(--sp-4); }
+  .account-welcome {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    min-width: 0;  /* flex item — prevents inflation of parent */
+    width: 100%;   /* fill .final-cta column */
+  }
   .welcome-avatar {
     width: 44px; height: 44px;
     border-radius: 50%;
@@ -767,7 +785,16 @@
     color: var(--ev-blue);
     flex-shrink: 0;
   }
-  .account-welcome h2 { margin: 0 0 2px; font-size: 1.1rem; }
+  .welcome-text {
+    min-width: 0;  /* flex item — allows text to shrink below natural size */
+    flex: 1;
+  }
+  .account-welcome h2 {
+    margin: 0 0 2px;
+    font-size: 1.1rem;
+    overflow-wrap: break-word;  /* break long emails/names that have no space */
+    word-break: break-word;     /* Safari fallback */
+  }
   .account-welcome p  { margin: 0; font-size: 0.85rem; color: var(--ev-text-dim); }
 
   /* ─── Footer ─── */

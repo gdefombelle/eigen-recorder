@@ -311,9 +311,13 @@ async function _finalizeStop(
   };
   await offlineStorage.saveSession(updatedSession);
 
+  // Reflect the real outcome in the UI state: 'synced' when the backend
+  // confirmed stop via POST /stop, 'stopped_local' when it failed or was
+  // skipped. This drives the "✓ Synced" badge in UploadQueueStatus and
+  // the synced post-actions block in RecorderMiniK7.
   update((s) => ({
     ...s,
-    state:            'stopped_local',
+    state:            finalStatus as import('./types').RecorderState,
     liveStreamState:  'idle',
     currentSession:   updatedSession,
     elapsedMs:        finalMs,
@@ -402,9 +406,17 @@ export const recorderStore = {
         const geoLng   = params.geo_lng ?? null;
         const surface  = params.recorder_surface
           ?? (knowledgeSessionId ? 'existing_session_form'
-              : draft.session_type === 'free_recording' ? 'record_now' : 'new_session_form');
+              : draft.session_type === 'free_recording' || draft.session_type === 'voice_note' ? 'record_now' : 'new_session_form');
         const metadataJson = {
           recorder_surface: surface,
+          capture_routing: {
+            knowledge_intent: params.knowledge_intent
+              ?? (draft.session_type === 'free_recording' || draft.session_type === 'voice_note'
+                ? 'personal_note' : params.project_id ? 'operate_project' : 'undecided'),
+            target_type: params.target_type
+              ?? (params.target_corpus_id ? 'corpus' : params.project_id ? 'project' : 'inbox'),
+            target_corpus_id: params.target_corpus_id ?? null,
+          },
           location_source:  geoLat !== null && geoLng !== null ? 'recorder_geolocation'
                             : draft.location_label ? 'manual_entry' : 'unavailable',
         };
@@ -414,7 +426,10 @@ export const recorderStore = {
             // Flow A — reconcile the pre-existing planned session with the
             // recorder's current form state + geolocation before starting it.
             await syncKnowledgeSessionFromRecorder(knowledgeSessionId, {
+              target_corpus_id: params.target_corpus_id ?? null,
               project_id:     params.project_id ?? null,
+              interaction_subtype: params.interaction_subtype,
+              business_context: params.business_context,
               title:          draft.title,
               session_type:   draft.session_type,
               mode:           'online',
@@ -431,7 +446,9 @@ export const recorderStore = {
             // KnowledgeSession from the recorder form (Record now uses a
             // minimal payload but still creates a real session).
             const created = await createKnowledgeSession({
+              workspace_id:   params.workspace_id ?? null,
               project_id:     params.project_id ?? null,
+              target_corpus_id: params.target_corpus_id ?? null,
               title:          draft.title,
               session_type:   draft.session_type,
               mode:           'online',
@@ -441,6 +458,10 @@ export const recorderStore = {
               geo_lat:        geoLat,
               geo_lng:        geoLng,
               participants:   toParticipantPayload(draft.participants),
+              knowledge_intent: params.knowledge_intent,
+              target_type:      params.target_type,
+              interaction_subtype: params.interaction_subtype,
+              business_context: params.business_context,
               metadata_json:  metadataJson,
             });
             knowledgeSessionId = created.id;
@@ -767,7 +788,10 @@ export const recorderStore = {
           size_bytes:       merged.size,
           saved_at:         new Date().toISOString(),
           uploaded_at:      null,
-          status:           'saved',
+          // Stream mode: audio already sent via WebSocket — this blob is kept only for
+          // Share Audio (offline export). Mark 'backup_only' so _flushUploads ignores it
+          // and doesn't upload it again via /audio-chunks.
+          status:           'backup_only',
         };
         await offlineStorage.saveChunk(meta, merged);
         const sessionWithMime: LocalKnowledgeSession = {
@@ -810,7 +834,7 @@ export const recorderStore = {
     await _finalizeStop(currentSession, finalMs);
   },
 
-  // ── Mock upload (local mode post-recording) ───────────────
+  // ── Real backend upload (local/offline post-recording) ────
 
   async mockUpload(sessionId?: string): Promise<void> {
     const { currentSession } = get(recorderStore);
@@ -819,36 +843,93 @@ export const recorderStore = {
 
     transition('mock_uploading');
 
-    const api     = mockRecorderApi;
     const session = await offlineStorage.getSession(targetId);
     if (!session) return;
 
+    let step = 'create session';
     try {
-      const remoteId = await api.createRemoteSession(session);
+      const knowledge_intent = session.session_type === 'expert_interview'
+        ? 'collect_knowledge' as const
+        : 'personal_note' as const;
+
+      const created = await createKnowledgeSession({
+        workspace_id: null,
+        project_id: null,
+        target_corpus_id: null,
+        title: session.title,
+        session_type: session.session_type === 'free_recording' ? 'voice_note' : session.session_type,
+        mode: 'online',
+        subject: session.subject || null,
+        agenda: session.agenda || null,
+        location_label: session.location_label,
+        participants: toParticipantPayload(session.participants),
+        knowledge_intent,
+        target_type: 'inbox',
+        metadata_json: {
+          ...session.metadata,
+          capture_routing: {
+            knowledge_intent,
+            target_type: 'inbox',
+            target_corpus_id: null,
+          },
+          sync_surface: 'offline_flush',
+        },
+      });
+
+      step = 'register device';
+      const device = await registerKnowledgeSessionDevice(created.id, buildDevicePayload());
+
+      step = 'start session';
+      await startKnowledgeSession(created.id);
+
+      const withBackendContext: LocalKnowledgeSession = {
+        ...session,
+        knowledge_session_id: created.id,
+        device_id: device.id,
+        mode: 'online',
+      };
+      await offlineStorage.saveSession(withBackendContext);
 
       const chunks = await offlineStorage.getChunksMeta(targetId);
       const now    = new Date().toISOString();
 
       for (const chunk of chunks) {
+        // Skip backup_only chunks — audio already sent via WebSocket, not for /audio-chunks.
+        if (chunk.status === 'backup_only') continue;
+
+        step = `upload chunk ${chunk.chunk_index}`;
         const blob = await offlineStorage.getChunkBlob(chunk.local_chunk_id);
-        if (blob) await api.uploadChunk(chunk, blob);
+        if (blob) {
+          await uploadAudioChunk({
+            knowledge_session_id: created.id,
+            device_id: device.id,
+            local_session_id: chunk.local_session_id,
+            chunk_index: chunk.chunk_index,
+            start_ms: chunk.start_ms,
+            end_ms: chunk.end_ms,
+            mime_type: chunk.mime_type,
+            size_bytes: chunk.size_bytes,
+            blob,
+          });
+        }
         await offlineStorage.updateChunkStatus(chunk.local_chunk_id, 'uploaded', now);
       }
 
-      const manifest = await offlineStorage.generateManifest(targetId);
-      if (manifest) await api.finalizeSession(targetId, manifest);
+      step = 'stop session';
+      await stopKnowledgeSession(created.id);
 
       const syncedSession: LocalKnowledgeSession = {
-        ...session,
-        status:            'mock_synced',
-        remote_session_id: remoteId,
-        mode:              'hybrid',
+        ...withBackendContext,
+        status:            'synced',
+        remote_session_id: created.id,
+        mode:              'online',
+        metadata:          { ...withBackendContext.metadata, backend_stopped: true },
       };
       await offlineStorage.saveSession(syncedSession);
 
       update((s) => ({
         ...s,
-        state:          'mock_synced',
+        state:          'synced',
         currentSession: syncedSession,
         chunks:         s.chunks.map((c) =>
           c.local_session_id === targetId
@@ -857,7 +938,8 @@ export const recorderStore = {
         ),
       }));
     } catch (err) {
-      setError(`Mock upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Sync failed at "${step}": ${msg}`);
     }
   },
 

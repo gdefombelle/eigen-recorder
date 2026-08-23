@@ -5,6 +5,17 @@ import { getApiBase, getDirectApiBase } from './config';
 import { getUser } from './auth';
 import type { RecordableKnowledgeSession } from '$lib/recorder/types';
 
+// Lazy import to avoid circular dep (pkceFlow → api → pkceFlow)
+async function tryRefresh(): Promise<string | null> {
+  try {
+    const { silentRefresh } = await import('./pkceFlow');
+    const user = await silentRefresh();
+    return user?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -44,10 +55,44 @@ export async function request<T>(
   }
 
   if (!res.ok) {
+    // 401 with a PKCE session → try silent refresh once, then retry
+    if (res.status === 401 && !skipAuth) {
+      const newToken = await tryRefresh();
+      if (newToken) {
+        // Retry with the new token
+        const retryHeaders: Record<string, string> = {
+          ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+          ...(opts.headers as Record<string, string> | undefined),
+          Authorization: `Bearer ${newToken}`,
+        };
+        let retryRes: Response;
+        try {
+          retryRes = await fetch(`${getApiBase()}${path}`, { ...opts, headers: retryHeaders });
+        } catch {
+          throw new ApiError(0, 'Server unreachable. Check your connection and the URL in Settings.', true);
+        }
+        if (retryRes.ok) {
+          if (retryRes.status === 204) return undefined as T;
+          return retryRes.json() as Promise<T>;
+        }
+        // Retry also failed — fall through to error handling below
+        res = retryRes;
+      }
+    }
     const body = await res.json().catch(() => ({ message: res.statusText }));
+    // FastAPI returns validation errors as body.detail = [{type,loc,msg,input}, ...]
+    // Serialize arrays so they produce a readable string instead of [object Object].
+    const detail =
+      typeof body.detail === 'string'
+        ? body.detail
+        : Array.isArray(body.detail)
+          ? body.detail.map((e: { msg?: string; message?: string }) =>
+              e.msg ?? e.message ?? JSON.stringify(e)
+            ).join('; ')
+          : undefined;
     throw new ApiError(
       res.status,
-      body.message ?? body.detail ?? res.statusText,
+      body.message ?? detail ?? res.statusText,
       res.status >= 500 || res.status === 429
     );
   }

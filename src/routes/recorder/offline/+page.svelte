@@ -9,15 +9,22 @@
 
   let store = $derived($recorderStore);
 
-  let totalBytes = $state(0);
+  let totalBytes   = $state(0);
   let sessionCount = $state(0);
 
   onMount(async () => {
     recorderStore.init();
+    // Initial values — OfflineSessionsList will call onStorageChange after its own load
+    // and keep these in sync on every delete.
     totalBytes   = await offlineStorage.getTotalStorageBytes();
     const sessions = await offlineStorage.getAllSessions();
     sessionCount = sessions.length;
   });
+
+  function onStorageChange(stats: { sessionCount: number; totalBytes: number }) {
+    sessionCount = stats.sessionCount;
+    totalBytes   = stats.totalBytes;
+  }
 </script>
 
 <main>
@@ -65,7 +72,7 @@
     <div class="content">
       <!-- Sessions list -->
       <div class="list-section">
-        <OfflineSessionsList />
+        <OfflineSessionsList onchange={onStorageChange} />
       </div>
     </div>
   </div>

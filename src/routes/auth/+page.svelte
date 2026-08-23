@@ -2,28 +2,12 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import { t, langStore } from '$lib/i18n/index';
-  import { apiLogin, apiRegister, apiMeWithToken, getGoogleLoginUrl, getAppleLoginUrl, apiAppleNativeLogin, ApiError } from '$lib/auth/api';
-  import { tokenToUser, setUser, isAuthenticated, authStore } from '$lib/auth/auth';
-  import { isNative } from '$lib/platform';
-  import { isIOS as isIOSDevice } from '$lib/recorder/utils'; // userAgent-based — true on any iPhone/iPad
-  import { registerPlugin } from '@capacitor/core';
+  import { langStore } from '$lib/i18n/index';
+  import { isAuthenticated, authStore } from '$lib/auth/auth';
+  import { startPkceLogin } from '$lib/auth/pkceFlow';
 
-  interface AppleSignInPlugin {
-    signIn(): Promise<{ identityToken: string; authorizationCode: string; email?: string; fullName?: string }>;
-  }
-  const AppleSignIn = registerPlugin<AppleSignInPlugin>('AppleSignInPlugin');
-
-  type Tab = 'login' | 'register';
-
-  let tab: Tab      = ($page.url.searchParams.get('tab') ?? 'login') as Tab;
-  let email         = '';
-  let password      = '';
-  let busy          = false;
-  let errorMsg      = '';
-  let success       = '';
-
-  // langStore accessed reactively in template
+  let busy     = $state(false);
+  let errorMsg = $state('');
 
   function nextUrl(): string {
     return $page.url.searchParams.get('next') ?? '/recorder';
@@ -37,97 +21,34 @@
     if ($authStore && isAuthenticated() && !busy) goto(nextUrl(), { replaceState: true });
   });
 
-  function switchTab(newTab: Tab) {
-    tab = newTab; errorMsg = ''; success = '';
-  }
-
-  function mapError(e: unknown): string {
-    if (e instanceof ApiError) {
-      if (e.status === 0)                       return t().auth.errorNetwork;
-      if (e.status === 401 || e.status === 400) return t().auth.errorCredentials;
-      if (e.status === 409)                     return t().auth.errorEmailTaken;
-      return e.message;
-    }
-    return String(e);
-  }
-
-  async function submit() {
-    errorMsg = ''; success = '';
-    if (!email.trim() || !password) return;
+  async function login() {
+    // UI-level guard — belt-and-suspenders alongside the module-level flag in pkceFlow.ts
+    if (busy) return;
+    errorMsg = '';
     busy = true;
     try {
-      const res = tab === 'login'
-        ? await apiLogin(email.trim(), password)
-        : await apiRegister(email.trim(), password);
-
-      const rawToken = res.token ?? res.session_token ?? '';
-      let user = tokenToUser(rawToken);
-      if (!user) {
-        const me = await apiMeWithToken(rawToken);
-        user = {
-          token:     rawToken,
-          email:     me.email,
-          name:      me.name,
-          expiresAt: res.expiresAt ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
-        };
-      }
-      setUser(user);
-      if (tab === 'register') {
-        success = t().auth.successRegister;
-        await new Promise(r => setTimeout(r, 800));
-      }
+      await startPkceLogin();
+      // setUser() was already called inside startPkceLogin(); $authStore/$effect will
+      // also navigate — calling goto() here too is fine (idempotent in SvelteKit).
       await goto(nextUrl());
     } catch (e) {
-      errorMsg = mapError(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      // Silent: user cancelled or duplicate call (already handled by module guard)
+      const silent = msg === 'Cancelled'
+        || msg.toLowerCase().includes('cancel')
+        || msg === 'Login already in progress';
+      if (!silent) {
+        errorMsg = $langStore === 'fr'
+          ? `Erreur de connexion : ${msg}`
+          : `Login error: ${msg}`;
+      }
     } finally {
       busy = false;
     }
   }
-
-  function loginWithGoogle() {
-    window.location.href = getGoogleLoginUrl();
-  }
-
-  async function loginWithApple() {
-    errorMsg = '';
-
-    // Native iOS (Capacitor) — use the plugin directly
-    if (isNative()) {
-      busy = true;
-      try {
-        const cred = await AppleSignIn.signIn();
-        const res  = await apiAppleNativeLogin({
-          identityToken:     cred.identityToken,
-          authorizationCode: cred.authorizationCode,
-          email:             cred.email,
-          fullName:          cred.fullName,
-        });
-        const rawToken = res.token ?? res.session_token ?? '';
-        let user = tokenToUser(rawToken);
-        if (!user) {
-          const me = await apiMeWithToken(rawToken);
-          user = { token: rawToken, email: me.email, name: me.name, expiresAt: res.expiresAt ?? Date.now() + 30 * 24 * 60 * 60 * 1000 };
-        }
-        setUser(user);
-        await goto(nextUrl());
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (msg !== 'Cancelled') errorMsg = mapError(e);
-      } finally {
-        busy = false;
-      }
-      return;
-    }
-
-    // Web iOS (Safari) — OAuth redirect, same pattern as Google
-    window.location.href = getAppleLoginUrl();
-  }
-
-  let onIOS    = $derived(isIOSDevice()); // userAgent-based: true on any iPhone/iPad (web + native)
-  let onNative = $derived(isNative());   // true only inside Capacitor WebView
 </script>
 
-<svelte:head><title>{t().auth.pageTitle} — EIGENVERTEX</title></svelte:head>
+<svelte:head><title>{$langStore === 'fr' ? 'Connexion' : 'Sign in'} — EIGENVERTEX</title></svelte:head>
 
 <div class="auth-page">
   <div class="auth-card">
@@ -154,106 +75,34 @@
       <span class="auth-brand-name">EIGENVERTEX</span>
     </div>
 
-    <!-- Tabs -->
-    <div class="auth-tabs">
-      <button
-        class="auth-tab"
-        class:active={tab === 'login'}
-        onclick={() => switchTab('login')}
-      >{t().auth.loginTab}</button>
-      <button
-        class="auth-tab"
-        class:active={tab === 'register'}
-        onclick={() => switchTab('register')}
-      >{t().auth.registerTab}</button>
+    <!-- Headline -->
+    <div class="auth-headline">
+      <h1>{$langStore === 'fr' ? 'Se connecter' : 'Sign in'}</h1>
+      <p>
+        {$langStore === 'fr'
+          ? 'Votre navigateur s\'ouvrira pour vous authentifier en toute sécurité.'
+          : 'Your browser will open to securely authenticate you.'}
+      </p>
     </div>
 
-    <!-- Form -->
-    <form class="auth-form" onsubmit={(e) => { e.preventDefault(); submit(); }}>
-      <div class="auth-field">
-        <label for="auth-email">{t().auth.email}</label>
-        <input
-          id="auth-email"
-          type="email"
-          autocomplete="email"
-          required
-          bind:value={email}
-          disabled={busy}
-          placeholder="you@example.com"
-        />
-      </div>
-
-      <div class="auth-field">
-        <label for="auth-password">{t().auth.password}</label>
-        <input
-          id="auth-password"
-          type="password"
-          autocomplete={tab === 'login' ? 'current-password' : 'new-password'}
-          required
-          bind:value={password}
-          disabled={busy}
-          placeholder="••••••••"
-        />
-        {#if tab === 'login'}
-          <button
-            type="button"
-            class="auth-forgot"
-            onclick={() => goto('/auth/forgot')}
-          >{t().auth.forgotPassword}</button>
-        {/if}
-      </div>
-
-      {#if errorMsg}
-        <p class="auth-error">{errorMsg}</p>
-      {/if}
-      {#if success}
-        <p class="auth-success">{success}</p>
-      {/if}
-
-      <button type="submit" class="auth-submit" disabled={busy}>
-        {#if busy}
-          <span class="auth-spinner"></span>
-        {:else}
-          {tab === 'login' ? t().auth.loginBtn : t().auth.registerBtn}
-        {/if}
-      </button>
-    </form>
-
-    <!-- Divider -->
-    <div class="auth-divider"><span>{t().auth.or}</span></div>
-
-    <!-- Google -->
-    <button class="auth-google" onclick={loginWithGoogle} disabled={busy}>
-      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.16 7.09-10.36 7.09-17.65z"/>
-        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-        <path fill="#FBBC05" d="M10.53 28.59a14.97 14.97 0 0 1 0-9.19l-7.98-6.19A23.86 23.86 0 0 0 0 24c0 3.77.9 7.34 2.56 10.78l7.97-6.19z"/>
-        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-      </svg>
-      {t().auth.googleBtn}
-    </button>
-
-    <!-- Apple — tout appareil iOS (guideline 4.8) : plugin natif Capacitor ou redirect web -->
-    {#if onIOS}
-      <button class="auth-apple" onclick={loginWithApple} disabled={busy}>
-        <svg width="18" height="18" viewBox="0 0 814 1000" aria-hidden="true" fill="currentColor">
-          <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-57.8-155.5-127.4C46 411.3 0 226.8 0 152.7c0-101.5 66.2-155.5 130.5-155.5 50 0 91.7 32.8 121.9 32.8 28.7 0 75.7-34.9 132.6-34.9 21.4.3 123.7 7.7 175.5 83.2zm-470-260.8c-18.5-24.7-49.2-42.6-84.3-42.6-3.8 0-7.7.3-11.5.9 1.2 38.4 18.1 76.3 44.2 103.1 24.1 24.7 56.3 40.5 89.3 40.5 3.2 0 6.4-.3 9.6-.6-1.1-37.8-19.1-74-47.3-101.3z"/>
-        </svg>
-        {t().auth.appleBtn}
-      </button>
+    {#if errorMsg}
+      <p class="auth-error">{errorMsg}</p>
     {/if}
 
-    <!-- Switch -->
-    <p class="auth-switch">
-      {#if tab === 'login'}
-        <button type="button" class="auth-switch-btn" onclick={() => switchTab('register')}>
-          {t().auth.registerLink}
-        </button>
+    <!-- Single CTA -->
+    <button class="auth-submit" onclick={login} disabled={busy}>
+      {#if busy}
+        <span class="auth-spinner"></span>
+        <span>{$langStore === 'fr' ? 'Connexion en cours…' : 'Signing in…'}</span>
       {:else}
-        <button type="button" class="auth-switch-btn" onclick={() => switchTab('login')}>
-          {t().auth.loginLink}
-        </button>
+        {$langStore === 'fr' ? 'Se connecter avec EigenVertex' : 'Sign in with EigenVertex'}
       {/if}
+    </button>
+
+    <p class="auth-note">
+      {$langStore === 'fr'
+        ? 'OAuth 2.1 · Connexion sécurisée via votre compte EigenVertex'
+        : 'OAuth 2.1 · Secure sign-in via your EigenVertex account'}
     </p>
 
   </div>
@@ -274,7 +123,7 @@
     max-width: 380px;
     display: flex;
     flex-direction: column;
-    gap: var(--sp-4);
+    gap: var(--sp-5);
     background: var(--ev-surface);
     border: 1px solid var(--ev-border);
     border-radius: var(--radius-lg);
@@ -304,63 +153,18 @@
     color: var(--ev-text);
   }
 
-  .auth-tabs {
-    display: flex;
-    background: var(--ev-card);
-    border: 1px solid var(--ev-border);
-    border-radius: var(--radius-md);
-    padding: 3px;
-    gap: 3px;
+  .auth-headline h1 {
+    font-size: 1.35rem;
+    font-family: var(--font-display);
+    font-weight: 700;
+    color: var(--ev-text);
+    margin-bottom: var(--sp-2);
   }
-  .auth-tab {
-    flex: 1;
-    padding: 8px;
-    background: none;
-    border: none;
-    border-radius: calc(var(--radius-md) - 2px);
-    font-size: 0.85rem;
-    font-weight: 500;
+  .auth-headline p {
+    font-size: 0.88rem;
     color: var(--ev-text-dim);
-    cursor: pointer;
-    transition: all 120ms;
+    margin: 0;
   }
-  .auth-tab.active {
-    background: var(--ev-surface);
-    color: var(--ev-text);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
-  }
-
-  .auth-form { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .auth-field { display: flex; flex-direction: column; gap: 6px; }
-  .auth-field label { font-size: 0.82rem; font-weight: 500; color: var(--ev-text); margin: 0; }
-  .auth-field input {
-    background: var(--ev-card);
-    border: 1px solid var(--ev-border);
-    border-radius: var(--radius-md);
-    color: var(--ev-text);
-    font-size: 0.9rem;
-    padding: 10px 12px;
-    outline: none;
-    transition: border-color 150ms;
-    font-family: var(--font-sans);
-    width: 100%;
-  }
-  .auth-field input:focus  { border-color: var(--ev-blue); }
-  .auth-field input:disabled { opacity: 0.5; }
-  .auth-field input::placeholder { color: rgba(255,255,255,0.55); }
-
-  .auth-forgot {
-    align-self: flex-end;
-    background: none;
-    border: none;
-    color: var(--ev-blue);
-    font-size: 0.78rem;
-    cursor: pointer;
-    padding: 0;
-    margin-top: 2px;
-    font-family: var(--font-sans);
-  }
-  .auth-forgot:hover { text-decoration: underline; }
 
   .auth-error {
     margin: 0;
@@ -372,11 +176,10 @@
     color: var(--ev-danger);
     line-height: 1.5;
   }
-  .auth-success { margin: 0; font-size: 0.82rem; color: var(--ev-success); }
 
   .auth-submit {
     width: 100%;
-    padding: 12px;
+    padding: 14px;
     background: var(--ev-blue);
     color: var(--ev-black);
     border: none;
@@ -388,9 +191,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 44px;
-    transition: opacity 120ms;
+    gap: var(--sp-2);
+    min-height: 52px;
+    transition: opacity 120ms, background 120ms;
   }
+  .auth-submit:hover:not(:disabled) { background: #b8dcff; }
   .auth-submit:disabled { opacity: 0.6; cursor: default; }
 
   .auth-spinner {
@@ -399,70 +204,15 @@
     border-top-color: var(--ev-black);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .auth-divider {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
+  .auth-note {
+    margin: 0;
+    text-align: center;
+    font-size: 0.75rem;
     color: var(--ev-text-dim);
-    font-size: 0.78rem;
+    opacity: 0.6;
   }
-  .auth-divider::before, .auth-divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--ev-border);
-  }
-
-  .auth-google {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    width: 100%;
-    padding: 11px;
-    background: var(--ev-card);
-    border: 1px solid var(--ev-border);
-    border-radius: var(--radius-md);
-    color: var(--ev-text);
-    font-size: 0.88rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: border-color 150ms;
-    font-family: var(--font-sans);
-  }
-  .auth-google:hover:not(:disabled) { border-color: rgba(255,255,255,0.2); }
-  .auth-google:disabled { opacity: 0.5; cursor: default; }
-
-  .auth-apple {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    width: 100%;
-    padding: 11px;
-    background: #fff;
-    border: 1px solid #fff;
-    border-radius: var(--radius-md);
-    color: #000;
-    font-size: 0.88rem;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: var(--font-sans);
-  }
-  .auth-apple:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .auth-switch { margin: 0; text-align: center; }
-  .auth-switch-btn {
-    background: none;
-    border: none;
-    color: var(--ev-blue);
-    font-size: 0.82rem;
-    cursor: pointer;
-    padding: 0;
-    font-family: var(--font-sans);
-  }
-  .auth-switch-btn:hover { text-decoration: underline; }
 </style>

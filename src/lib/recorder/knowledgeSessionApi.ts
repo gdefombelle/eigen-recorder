@@ -16,7 +16,7 @@ import { getSupportedMimeType } from './audioRecorder';
 // ── Payloads & responses ───────────────────────────────────────────────────
 
 export type KnowledgeSessionType =
-  | 'project_meeting' | 'expert_interview' | 'client_interview'
+  | 'project_meeting' | 'meeting' | 'interview' | 'expert_interview' | 'voice_note' | 'client_interview'
   | 'workshop' | 'field_visit' | 'audit_session' | 'follow_up'
   | 'free_recording' | 'other';
 
@@ -34,7 +34,9 @@ export function toParticipantPayload(names: string[]): ParticipantPayload[] | un
 }
 
 export interface CreateKnowledgeSessionPayload {
+  workspace_id?:   string | null;
   project_id?:     string | null;
+  target_corpus_id?: string | null;
   title:           string;
   session_type:    KnowledgeSessionType;
   mode:            KnowledgeSessionMode;
@@ -44,6 +46,10 @@ export interface CreateKnowledgeSessionPayload {
   geo_lat?:        number | null;
   geo_lng?:        number | null;
   participants?:   ParticipantPayload[];
+  knowledge_intent?: 'operate_project' | 'collect_knowledge' | 'personal_note' | 'undecided';
+  target_type?: 'project' | 'corpus' | 'inbox';
+  interaction_subtype?: string | null;
+  business_context?: string | null;
   metadata_json?:  Record<string, unknown>;
 }
 
@@ -53,7 +59,10 @@ export interface CreateKnowledgeSessionPayload {
  * only the recorder-known subset on every sync.
  */
 export interface RecorderSyncPayload {
+  target_corpus_id?: string | null;
   project_id?:     string | null;
+  interaction_subtype?: string | null;
+  business_context?: string | null;
   title?:          string | null;
   session_type?:   KnowledgeSessionType;
   mode?:           KnowledgeSessionMode;
@@ -130,12 +139,15 @@ export async function uploadAudioChunk(params: AudioChunkUploadParams): Promise<
 
   const form = new FormData();
   form.append('audio', blob, `chunk_${String(meta.chunk_index).padStart(4, '0')}.${_extForMime(meta.mime_type)}`);
+  // Integer fields must be truncated to whole numbers — NativeAudioRecorder (iOS)
+  // returns timestamps as Swift Double, which can produce fractional milliseconds
+  // (e.g. 5001.5). String("5001.5") fails FastAPI's integer validator.
   form.append('device_id',    device_id);
-  form.append('chunk_index',  String(meta.chunk_index));
-  form.append('start_ms',     String(meta.start_ms));
-  form.append('end_ms',       String(meta.end_ms));
+  form.append('chunk_index',  String(Math.round(meta.chunk_index)));
+  form.append('start_ms',     String(Math.round(meta.start_ms)));
+  form.append('end_ms',       String(Math.round(meta.end_ms)));
   form.append('mime_type',    meta.mime_type);
-  form.append('size_bytes',   String(meta.size_bytes));
+  form.append('size_bytes',   String(Math.round(meta.size_bytes)));
   form.append('local_session_id', meta.local_session_id);
 
   // ── AUDIO_ENDPOINT_TBD ──────────────────────────────────────────────────

@@ -9,9 +9,15 @@
     onMockUpload?: (() => void) | null;
   } = $props();
 
-  let uploaded = $derived(chunks.filter((c) => c.status === 'uploaded').length);
-  let pending  = $derived(chunks.filter((c) => c.status === 'saved').length);
-  let isSynced = $derived(state === 'mock_synced');
+  // Exclude backup_only chunks from sync accounting — they were sent via
+  // WebSocket and are kept locally for Share Audio only, not via /audio-chunks.
+  let realChunks  = $derived(chunks.filter((c) => c.status !== 'backup_only'));
+  let uploaded    = $derived(realChunks.filter((c) => c.status === 'uploaded').length);
+  let pending     = $derived(realChunks.filter((c) => c.status === 'saved').length);
+
+  // 'synced'      → POST /stop confirmed by backend (PCM stream mode)
+  // 'mock_synced' → full offline flush completed
+  let isSynced    = $derived(state === 'mock_synced' || state === 'synced');
   let isUploading = $derived(state === 'mock_uploading');
 </script>
 
@@ -26,35 +32,25 @@
       <span class="stat-val">{formatBytes(totalSizeBytes)}</span>
       <span class="stat-key">on device</span>
     </div>
-    {#if chunks.length > 0}
+    {#if !isSynced && realChunks.length > 0}
       <div class="stat-sep">·</div>
       <div class="stat">
-        <span class="stat-val">{uploaded}/{chunks.length}</span>
+        <span class="stat-val">{uploaded}/{realChunks.length}</span>
         <span class="stat-key">synced</span>
       </div>
     {/if}
   </div>
 
-  {#if isSynced}
-    <div class="sync-badge synced">
-      <span>✓</span> Synced to EigenVertex
-    </div>
-  {:else if isUploading}
-    <div class="sync-badge uploading">
-      <span class="spinner"></span> Syncing…
-    </div>
-  {:else if pending > 0}
+  {#if pending > 0 && !isSynced}
     <div class="not-uploaded">
       <span class="warn-icon">⚠</span>
-      <span>{pending} chunk{pending > 1 ? 's' : ''} not synced yet</span>
-      {#if onMockUpload}
-        <button class="btn btn-sm btn-ghost" onclick={onMockUpload}>
-          Sync to EigenVertex
-        </button>
-      {/if}
+      <span>{pending} chunk{pending > 1 ? 's' : ''} not synced yet — use the button below</span>
     </div>
   {/if}
 </div>
+<!-- Note: the "✓ Synced" and "Syncing…" badges are intentionally NOT rendered
+     here — RecorderMiniK7's post-actions block handles those states. This
+     component is responsible only for file stats and the pending-chunks warning. -->
 
 <style>
   .queue-status {

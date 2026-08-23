@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { t, langStore, setLang, type Lang } from '$lib/i18n/index';
   import { authStore, isAuthenticated, clearUser, getUser } from '$lib/auth/auth';
+  import { pkceLogout } from '$lib/auth/pkceFlow';
   import { getServerUrl, getDefaultServerUrl, isProxyMode, setServerUrl, resetServerUrl } from '$lib/auth/config';
   import { recorderStore } from '$lib/recorder/recorderStore';
   import { offlineStorage } from '$lib/recorder/offlineStorage';
@@ -74,7 +75,7 @@
   }
 
   async function signOut() {
-    clearUser();
+    await pkceLogout(); // revokes refresh token + clears secure storage
   }
 
   async function clearAllData() {
@@ -141,7 +142,7 @@
         {#if authed && user}
           <div class="account-row">
             <div class="account-info">
-              <div class="account-avatar">{user.email[0].toUpperCase()}</div>
+              <div class="account-avatar">{user.email?.[0]?.toUpperCase() ?? '?'}</div>
               <div>
                 {#if user.name}<div class="account-name">{user.name}</div>{/if}
                 <div class="account-email">{user.email}</div>
@@ -149,9 +150,13 @@
             </div>
             <button class="s-ghost-btn" on:click={signOut}>{t().auth.logout}</button>
           </div>
-          <button class="s-danger-btn" on:click={deleteAccount}>
+          <!-- Delete account hidden for now — Apple App Store may require this button
+               to comply with guideline 5.1.1 (account deletion). Restore by removing
+               the comment if App Review requests it. The deleteAccount() function is
+               still wired up above. -->
+          <!-- <button class="s-danger-btn" on:click={deleteAccount}>
             {t().settings.deleteAccountBtn}
-          </button>
+          </button> -->
         {:else}
           <div class="signin-cta">
             <p class="signin-hint">{t().auth.signInHint}</p>

@@ -1,41 +1,32 @@
 // Restores Package.swift to use local capacitor-swift-pm path after `cap sync` overwrites it.
-// cap sync regenerates Package.swift with remote URL every time — this script fixes it back.
+// cap sync uses the remote github URL for capacitor-swift-pm; this script replaces it
+// with the local .capacitor-spm path — while keeping all plugin references intact.
+//
+// Strategy: read the Package.swift that `cap sync` just wrote, then replace only the
+// capacitor-swift-pm remote URL entry with the local path reference.
 
-import { writeFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-
-const content = `// swift-tools-version: 5.9
-import PackageDescription
-
-// LOCAL PATH — managed by scripts/restore-package-swift.mjs
-// cap sync overwrites this; npm run cap:sync restores it automatically.
-let package = Package(
-    name: "CapApp-SPM",
-    platforms: [.iOS(.v15)],
-    products: [
-        .library(
-            name: "CapApp-SPM",
-            targets: ["CapApp-SPM"])
-    ],
-    dependencies: [
-        .package(name: "capacitor-swift-pm",
-                 path: "../../../.capacitor-spm/capacitor-swift-pm"),
-    ],
-    targets: [
-        .target(
-            name: "CapApp-SPM",
-            dependencies: [
-                .product(name: "Capacitor", package: "capacitor-swift-pm"),
-                .product(name: "Cordova",   package: "capacitor-swift-pm")
-            ]
-        )
-    ]
-)
-`;
-
 const dest = join(root, 'ios/App/CapApp-SPM/Package.swift');
+
+let content = readFileSync(dest, 'utf8');
+
+// Replace the remote capacitor-swift-pm URL with the local path.
+// cap sync writes:  .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "X.Y.Z"),
+// We want:          .package(name: "capacitor-swift-pm", path: "../../../.capacitor-spm/capacitor-swift-pm"),
+content = content.replace(
+  /\.package\(url:\s*"https:\/\/github\.com\/ionic-team\/capacitor-swift-pm\.git"[^)]*\)/,
+  '.package(name: "capacitor-swift-pm", path: "../../../.capacitor-spm/capacitor-swift-pm")'
+);
+
+// Also remove the "// DO NOT MODIFY" comment to avoid confusion
+content = content.replace(
+  /\/\/ DO NOT MODIFY THIS FILE - managed by Capacitor CLI commands\n/,
+  '// LOCAL PATH for capacitor-swift-pm — managed by scripts/restore-package-swift.mjs\n// Other dependencies use local node_modules paths (added by cap sync).\n'
+);
+
 writeFileSync(dest, content, 'utf8');
-console.log('✓ Package.swift restored to local path reference');
+console.log('✓ Package.swift restored (local capacitor-swift-pm path, plugins intact)');

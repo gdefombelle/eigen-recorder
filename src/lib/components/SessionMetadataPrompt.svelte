@@ -193,6 +193,8 @@
   let sessionsError        = $state('');
   let selectedSessionId:   string | null = $state(null);
   let selectedProjectId:   string | null = $state(null);
+  let selectedWorkspaceId: string | null = $state(null);
+  let selectedTargetCorpusId: string | null = $state(null);
 
   async function loadRecordableSessions() {
     if (!isAuthenticated()) return;
@@ -210,6 +212,8 @@
   function applyPlannedMeeting(s: RecordableKnowledgeSession) {
     selectedSessionId = s.id;
     selectedProjectId = s.project_id ?? null;
+    selectedWorkspaceId = s.workspace_id ?? null;
+    selectedTargetCorpusId = s.target_corpus_id ?? null;
     title             = s.title;
     session_type      = s.session_type;
     subject           = s.subject ?? '';
@@ -225,6 +229,8 @@
   function clearSession() {
     selectedSessionId = null;
     selectedProjectId = null;
+    selectedWorkspaceId = null;
+    selectedTargetCorpusId = null;
     title             = '';
     subject           = '';
     agenda            = '';
@@ -309,7 +315,7 @@
     const time = now.toLocaleTimeString($langStore === 'fr' ? 'fr-FR' : 'en-US', { hour: '2-digit', minute: '2-digit' });
     onsubmit?.({
       title:                $langStore === 'fr' ? `Note ${time}` : `Note ${time}`,
-      session_type:         'free_recording',
+      session_type:         'voice_note',
       subject:              '',
       agenda:               '',
       participants:         [],
@@ -317,6 +323,10 @@
       geo_lat:              geoFromDevice ? geoLat : null,
       geo_lng:              geoFromDevice ? geoLng : null,
       project_id:           null,
+      workspace_id:         null,
+      target_corpus_id:     null,
+      knowledge_intent:     'personal_note',
+      target_type:          'inbox',
       knowledge_session_id: null,
       recorder_surface:     'record_now',
     });
@@ -335,6 +345,10 @@
       geo_lat:              geoFromDevice ? geoLat : null,
       geo_lng:              geoFromDevice ? geoLng : null,
       project_id:           selectedProjectId,
+      workspace_id:         selectedWorkspaceId,
+      target_corpus_id:     selectedTargetCorpusId,
+      knowledge_intent:     selectedProjectId ? 'operate_project' : undefined,
+      target_type:          selectedTargetCorpusId ? 'corpus' : selectedProjectId ? 'project' : 'inbox',
       knowledge_session_id: selectedSessionId,
       recorder_surface:     selectedSessionId ? 'existing_session_form' : 'new_session_form',
     });

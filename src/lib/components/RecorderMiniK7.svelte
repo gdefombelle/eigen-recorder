@@ -23,7 +23,7 @@
   let session = $derived(store.currentSession);
   let isRecording = $derived(store.state === 'recording_offline');
   let isPaused    = $derived(store.state === 'paused');
-  let isStopped   = $derived(store.state === 'stopped_local' || store.state === 'mock_synced');
+  let isStopped   = $derived(store.state === 'stopped_local' || store.state === 'synced' || store.state === 'mock_synced');
   let isStopping  = $derived(store.state === 'stopping');
   let isUploading = $derived(store.state === 'mock_uploading');
   let hasError    = $derived(store.state === 'error');
@@ -249,12 +249,12 @@
       {/if}
 
       <!-- Post-recording actions (in scroll zone) -->
-      {#if isStopped && store.state !== 'mock_synced'}
+      {#if isStopped && store.state !== 'mock_synced' && store.state !== 'synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
 
           <!-- Show sync button only if NOT streamed during recording -->
-          {#if syncMode === 'local'}
+          {#if syncMode === 'local' || !session?.knowledge_session_id}
             {#if authed}
               <button class="btn btn-ghost btn-full" onclick={handleMockUpload} disabled={isUploading}>
                 {isUploading ? '⏳ Syncing…' : '◈ Sync to EigenVertex'}
@@ -279,7 +279,7 @@
 
           <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
         </div>
-      {:else if store.state === 'mock_synced'}
+      {:else if store.state === 'mock_synced' || store.state === 'synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
           <div class="synced-msg"><span class="synced-check">✓</span>Synced to EigenVertex{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>

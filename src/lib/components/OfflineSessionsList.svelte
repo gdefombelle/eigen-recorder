@@ -7,11 +7,21 @@
   import { formatDuration, formatBytes, formatDate } from '$lib/recorder/utils';
   import ShareAudioButton from './ShareAudioButton.svelte';
 
-  let { compact = false }: { compact?: boolean } = $props();
+  let {
+    compact  = false,
+    onchange = undefined,
+  }: {
+    compact?:  boolean;
+    /** Called after every load (initial + post-delete) with fresh storage stats. */
+    onchange?: (stats: { sessionCount: number; totalBytes: number }) => void;
+  } = $props();
 
   let sessions: LocalKnowledgeSession[] = $state([]);
   let statsBySession: Record<string, { chunkCount: number; totalBytes: number }> = $state({});
-  let loading = $state(true);
+  let loading     = $state(true);
+  let selectMode  = $state(false);
+  let selected    = $state<Set<string>>(new Set());
+  let deleting    = $state(false);
 
   async function load() {
     loading = true;
@@ -22,14 +32,56 @@
     }
     statsBySession = statsMap;
     loading = false;
+
+    // Notify parent with fresh totals so storage display stays in sync
+    if (onchange) {
+      const totalBytes = Object.values(statsMap).reduce((acc, s) => acc + s.totalBytes, 0);
+      onchange({ sessionCount: sessions.length, totalBytes });
+    }
   }
 
   onMount(load);
 
+  // ── Single delete (trash icon, outside select mode) ──────────
   async function del(session: LocalKnowledgeSession, e: MouseEvent) {
     e.stopPropagation();
     if (!confirm(`Delete "${session.title}"?`)) return;
     await offlineStorage.deleteSession(session.local_session_id);
+    await load();
+  }
+
+  // ── Selection mode helpers ────────────────────────────────────
+  function enterSelectMode() {
+    selectMode = true;
+    selected   = new Set();
+  }
+
+  function exitSelectMode() {
+    selectMode = false;
+    selected   = new Set();
+  }
+
+  function toggleSelect(id: string) {
+    const next = new Set(selected);
+    next.has(id) ? next.delete(id) : next.add(id);
+    selected = next;
+  }
+
+  function toggleAll() {
+    if (selected.size === sessions.length) {
+      selected = new Set();
+    } else {
+      selected = new Set(sessions.map((s) => s.local_session_id));
+    }
+  }
+
+  async function deleteSelected() {
+    if (selected.size === 0) return;
+    if (!confirm(`Delete ${selected.size} session${selected.size > 1 ? 's' : ''}?`)) return;
+    deleting = true;
+    await Promise.all([...selected].map((id) => offlineStorage.deleteSession(id)));
+    deleting = false;
+    exitSelectMode();
     await load();
   }
 
@@ -63,20 +115,56 @@
     </div>
 
   {:else}
+    <!-- ── List header: Select toggle ── -->
+    {#if !compact}
+      <div class="list-header">
+        {#if selectMode}
+          <button class="header-btn" onclick={toggleAll}>
+            {selected.size === sessions.length ? 'Deselect all' : 'Select all'}
+          </button>
+          <span class="select-count">{selected.size} selected</span>
+          <button class="header-btn cancel-btn" onclick={exitSelectMode}>Cancel</button>
+        {:else}
+          <button class="header-btn" onclick={enterSelectMode}>Select</button>
+        {/if}
+      </div>
+    {/if}
+
     <div class="list">
       {#each sessions as session (session.local_session_id)}
         {@const stats = statsBySession[session.local_session_id] ?? { chunkCount: 0, totalBytes: 0 }}
         {@const badge = statusBadge(session.status)}
+        {@const isSelected = selected.has(session.local_session_id)}
 
         <div
           class="session-card"
+          class:is-selected={isSelected}
           role="button"
           tabindex="0"
-          onclick={() => goto(`/recorder/session/${session.local_session_id}`)}
-          onkeydown={(e) => e.key === 'Enter' && goto(`/recorder/session/${session.local_session_id}`)}
+          onclick={() => {
+            if (selectMode) {
+              toggleSelect(session.local_session_id);
+            } else {
+              goto(`/recorder/session/${session.local_session_id}`);
+            }
+          }}
+          onkeydown={(e) => {
+            if (e.key === 'Enter') {
+              selectMode ? toggleSelect(session.local_session_id) : goto(`/recorder/session/${session.local_session_id}`);
+            }
+          }}
         >
-          <!-- Top row: type + status badges -->
+          <!-- Top row: checkbox (select mode) or type + status badges -->
           <div class="card-top">
+            {#if selectMode && !compact}
+              <span class="check-box" class:checked={isSelected}>
+                {#if isSelected}
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="1.5 6 4.5 9 10.5 3"/>
+                  </svg>
+                {/if}
+              </span>
+            {/if}
             <span class="type-label">{SESSION_TYPE_LABELS[session.session_type] ?? session.session_type}</span>
             <div class="badges">
               <span class="badge {badge.cls}">{badge.label}</span>
@@ -104,8 +192,8 @@
             {/if}
           </div>
 
-          <!-- Actions (stop propagation so row click doesn't fire) -->
-          {#if !compact}
+          <!-- Actions (hidden in select mode) -->
+          {#if !compact && !selectMode}
             <div class="card-actions" role="none" onclick={(e) => e.stopPropagation()}>
               {#if stats.chunkCount > 0}
                 <ShareAudioButton
@@ -129,6 +217,26 @@
         </div>
       {/each}
     </div>
+
+    <!-- ── Bottom action bar (select mode only) ── -->
+    {#if selectMode && !compact}
+      <div class="select-bar">
+        <button
+          class="delete-selected-btn"
+          onclick={deleteSelected}
+          disabled={selected.size === 0 || deleting}
+        >
+          {#if deleting}
+            <span class="spinner-sm"></span> Deleting…
+          {:else}
+            <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <path d="M2 4h11M6 4V2h3v2M5 4l.5 9M10 4l-.5 9M7.5 4v9"/>
+            </svg>
+            Delete{selected.size > 0 ? ` ${selected.size}` : ''}
+          {/if}
+        </button>
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -243,6 +351,87 @@
     color: var(--ev-danger);
     background: rgba(229,72,77,0.08);
   }
+
+  /* ── List header ── */
+  .list-header {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding-bottom: var(--sp-2);
+    margin-bottom: var(--sp-1);
+  }
+
+  .header-btn {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--ev-blue);
+    background: none;
+    border: none;
+    padding: 4px 2px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .header-btn:active { opacity: 0.65; }
+  .cancel-btn { color: var(--ev-text-dim); margin-left: auto; }
+
+  .select-count {
+    flex: 1;
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--ev-text-dim);
+  }
+
+  /* ── Checkbox ── */
+  .check-box {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1.5px solid var(--ev-border);
+    background: transparent;
+    flex-shrink: 0;
+    transition: border-color 100ms, background 100ms;
+    color: #fff;
+  }
+  .check-box.checked {
+    border-color: var(--ev-blue);
+    background: var(--ev-blue);
+  }
+
+  /* ── Selected card highlight ── */
+  .session-card.is-selected {
+    border-color: var(--ev-blue);
+    background: rgba(154,209,255,0.07);
+  }
+
+  /* ── Bottom delete bar ── */
+  .select-bar {
+    position: sticky;
+    bottom: 0;
+    padding: var(--sp-3) 0 var(--sp-2);
+    background: linear-gradient(to bottom, transparent, var(--ev-bg) 40%);
+  }
+
+  .delete-selected-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: var(--radius-lg);
+    background: var(--ev-danger);
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 120ms;
+  }
+  .delete-selected-btn:disabled { opacity: 0.45; cursor: default; }
+  .delete-selected-btn:not(:disabled):active { opacity: 0.8; }
 
   .spinner-sm {
     display: inline-block;

@@ -2,7 +2,10 @@
 
 export type KnowledgeSessionType =
   | 'project_meeting'
+  | 'meeting'
+  | 'interview'
   | 'expert_interview'
+  | 'voice_note'
   | 'client_interview'
   | 'workshop'
   | 'field_visit'
@@ -13,7 +16,10 @@ export type KnowledgeSessionType =
 
 export const SESSION_TYPE_LABELS: Record<KnowledgeSessionType, string> = {
   project_meeting:  'Project Meeting',
+  meeting:          'Meeting',
+  interview:        'Interview',
   expert_interview: 'Expert Interview',
+  voice_note:       'Voice Note',
   client_interview: 'Client Interview',
   workshop:         'Workshop',
   field_visit:      'Field Visit',
@@ -36,6 +42,12 @@ export interface RecordableKnowledgeSession {
   location_label:       string | null;
   workspace_name:       string | null;
   project_id?:          string | null;
+  workspace_id?:        string | null;
+  target_corpus_id?:    string | null;
+  knowledge_intent?:    'operate_project' | 'collect_knowledge' | 'personal_note' | 'undecided';
+  target_type?:         'project' | 'corpus' | 'inbox';
+  interaction_subtype?: string | null;
+  business_context?:    string | null;
   can_resume_recording: boolean;
   is_live:              boolean;
   participants?:        string[];
@@ -62,6 +74,7 @@ export type RecorderState =
   | 'paused'
   | 'stopping'
   | 'stopped_local'
+  | 'synced'
   | 'mock_uploading'
   | 'mock_synced'
   | 'error';
@@ -102,7 +115,8 @@ export type AudioChunkStatus =
   | 'pending_sync'    // no backend session context yet (missing knowledge_session_id or device_id)
   | 'uploading'       // upload in progress
   | 'uploaded'        // confirmed by backend
-  | 'error';          // upload failed
+  | 'error'           // upload failed
+  | 'backup_only';    // stream-mode local backup — audio already sent via WebSocket, kept for Share Audio only; never auto-uploaded
 
 export interface AudioChunkMetadata {
   local_chunk_id: string;
@@ -176,6 +190,12 @@ export interface CreateSessionParams {
   geo_lng?:             number | null;
   // Carried through from a picked planned session, when the backend provides one.
   project_id?:          string | null;
+  workspace_id?:        string | null;
+  target_corpus_id?:    string | null;
+  knowledge_intent?:    'operate_project' | 'collect_knowledge' | 'personal_note' | 'undecided';
+  target_type?:         'project' | 'corpus' | 'inbox';
+  interaction_subtype?: string | null;
+  business_context?:    string | null;
   knowledge_session_id: string | null;
   // Which recorder surface produced this session — feeds metadata_json.recorder_surface.
   recorder_surface?:    'new_session_form' | 'existing_session_form' | 'record_now';
