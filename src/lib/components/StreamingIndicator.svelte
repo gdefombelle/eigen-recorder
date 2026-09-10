@@ -15,11 +15,11 @@
   let label = $derived((() => {
     if (!online) return isFr ? 'Hors-ligne — stocké localement' : 'Offline — stored locally';
     switch (liveStreamState) {
-      case 'connecting':    return isFr ? 'Connexion au stream…'      : 'Connecting stream…';
-      case 'streaming':     return isFr ? `En direct · ${framesStreamed} frames` : `Live · ${framesStreamed} frames`;
-      case 'reconnecting':  return isFr ? 'Reconnexion…'              : 'Reconnecting…';
-      case 'failed':        return isFr ? 'Stream interrompu'          : 'Stream interrupted';
-      default:              return isFr ? 'Stream EigenVertex actif'   : 'EigenVertex stream active';
+      case 'connecting':    return isFr ? 'WebSocket — connexion…'                : 'WebSocket — connecting…';
+      case 'streaming':     return isFr ? `${framesStreamed} frames émises`        : `${framesStreamed} frames sent`;
+      case 'reconnecting':  return isFr ? 'WebSocket — reconnexion…'              : 'WebSocket — reconnecting…';
+      case 'failed':        return isFr ? 'WebSocket interrompu'                  : 'WebSocket interrupted';
+      default:              return isFr ? 'WebSocket ouvert'                      : 'WebSocket open';
     }
   })());
 

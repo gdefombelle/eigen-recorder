@@ -36,7 +36,7 @@
       <div class="stat-sep">·</div>
       <div class="stat">
         <span class="stat-val">{uploaded}/{realChunks.length}</span>
-        <span class="stat-key">synced</span>
+        <span class="stat-key">envoyé</span>
       </div>
     {/if}
   </div>

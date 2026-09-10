@@ -282,7 +282,7 @@
       {:else if store.state === 'mock_synced' || store.state === 'synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
-          <div class="synced-msg"><span class="synced-check">✓</span>Synced to EigenVertex{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
+          <div class="synced-msg"><span class="synced-check">✓</span>Envoyé à EigenVertex{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
           <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
         </div>
       {:else if isUploading}

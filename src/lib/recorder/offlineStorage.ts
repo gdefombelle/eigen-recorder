@@ -88,6 +88,24 @@ export const offlineStorage = {
     await tx.done;
   },
 
+  /**
+   * Purge audio blobs for a session — frees storage while keeping session metadata,
+   * chunk metadata, and transport history intact.
+   *
+   * Per D-02: audio deletion is always explicit and user-initiated. This method
+   * deletes only chunks_data (blobs); chunks_meta rows are preserved for audit.
+   * `getChunkBlob` will return undefined after purge — callers must handle that.
+   */
+  async purgeAudio(sessionId: string): Promise<void> {
+    const db = await getDb();
+    const chunks = await this.getChunksMeta(sessionId);
+    const tx = db.transaction(['chunks_data'], 'readwrite');
+    for (const c of chunks) {
+      await tx.objectStore('chunks_data').delete(c.local_chunk_id);
+    }
+    await tx.done;
+  },
+
   // ── Chunks ────────────────────────────────────────────────
 
   async saveChunk(meta: AudioChunkMetadata, blob: Blob): Promise<void> {

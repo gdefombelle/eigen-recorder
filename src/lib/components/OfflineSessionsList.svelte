@@ -6,6 +6,7 @@
   import type { LocalKnowledgeSession } from '$lib/recorder/types';
   import { formatDuration, formatBytes, formatDate } from '$lib/recorder/utils';
   import ShareAudioButton from './ShareAudioButton.svelte';
+  import SessionPlayer from './SessionPlayer.svelte';
 
   let {
     compact  = false,
@@ -22,6 +23,29 @@
   let selectMode  = $state(false);
   let selected    = $state<Set<string>>(new Set());
   let deleting    = $state(false);
+
+  // Track which card has its player expanded
+  let expandedPlayer: string | null = $state(null);
+
+  // Track which card has the action menu open
+  let openMenu: string | null = $state(null);
+
+  // Grouped sessions: sessions sharing the same knowledge_session_id → played together
+  let sessionGroups = $derived((() => {
+    const groups = new Map<string, LocalKnowledgeSession[]>();
+    for (const s of sessions) {
+      const key = s.knowledge_session_id ?? s.local_session_id;
+      const arr = groups.get(key) ?? [];
+      arr.push(s);
+      groups.set(key, arr);
+    }
+    return groups;
+  })());
+
+  function playerSessions(session: LocalKnowledgeSession): LocalKnowledgeSession[] {
+    const key = session.knowledge_session_id ?? session.local_session_id;
+    return sessionGroups.get(key) ?? [session];
+  }
 
   async function load() {
     loading = true;
@@ -42,10 +66,36 @@
 
   onMount(load);
 
-  // ── Single delete (trash icon, outside select mode) ──────────
+  // ── Action menu ──────────────────────────────────────────────
+  function openActionMenu(id: string, e: MouseEvent) {
+    e.stopPropagation();
+    openMenu = openMenu === id ? null : id;
+  }
+
+  // Action 1 — purge audio blobs only (D-02)
+  async function purgeAudio(session: LocalKnowledgeSession, e: MouseEvent) {
+    e.stopPropagation();
+    openMenu = null;
+    const stats = statsBySession[session.local_session_id];
+    if (!stats?.totalBytes) return; // nothing to purge
+    if (!confirm(
+      `Supprimer les fichiers audio de « ${session.title} » ?\n` +
+      `Les métadonnées et l'historique de transport sont conservés.\n` +
+      `Cette action est irréversible.`
+    )) return;
+    await offlineStorage.purgeAudio(session.local_session_id);
+    await load();
+  }
+
+  // Action 2 — delete session entirely (D-02)
   async function del(session: LocalKnowledgeSession, e: MouseEvent) {
     e.stopPropagation();
-    if (!confirm(`Delete "${session.title}"?`)) return;
+    openMenu = null;
+    if (!confirm(
+      `Supprimer définitivement la session « ${session.title} » ?\n` +
+      `Toutes les données (audio et métadonnées) seront effacées.\n` +
+      `Cette action est irréversible.`
+    )) return;
     await offlineStorage.deleteSession(session.local_session_id);
     await load();
   }
@@ -92,9 +142,9 @@
       recording_offline: { cls: 'badge-red',    label: 'Interrupted' },
       paused:            { cls: 'badge-orange', label: 'Paused' },
       stopped_local:     { cls: 'badge-orange', label: 'Local' },
-      synced:            { cls: 'badge-green',  label: '◈ Synced' },
-      mock_uploading:    { cls: 'badge-blue',   label: 'Syncing' },
-      mock_synced:       { cls: 'badge-green',  label: 'Synced' },
+      synced:            { cls: 'badge-green',  label: '◈ Envoyé' },
+      mock_uploading:    { cls: 'badge-blue',   label: 'Envoi…' },
+      mock_synced:       { cls: 'badge-green',  label: '◈ Envoyé' },
       error:             { cls: 'badge-red',    label: 'Error' },
     };
     return map[status] ?? { cls: 'badge-gray', label: status };
@@ -169,7 +219,7 @@
             <div class="badges">
               <span class="badge {badge.cls}">{badge.label}</span>
               {#if session.status === 'mock_synced'}
-                <span class="badge badge-green">↑ Synced</span>
+                <span class="badge badge-green">↑ Envoyé</span>
               {/if}
             </div>
           </div>
@@ -195,26 +245,88 @@
           <!-- Actions (hidden in select mode) -->
           {#if !compact && !selectMode}
             <div class="card-actions" role="none" onclick={(e) => e.stopPropagation()}>
+              <!-- Play button (only when audio is available locally) -->
               {#if stats.chunkCount > 0}
+                <button
+                  class="action-btn play-inline-btn"
+                  class:active={expandedPlayer === session.local_session_id}
+                  onclick={(e) => { e.stopPropagation(); expandedPlayer = expandedPlayer === session.local_session_id ? null : session.local_session_id; }}
+                  title={expandedPlayer === session.local_session_id ? 'Fermer le lecteur' : 'Écouter'}
+                  aria-label="Écouter"
+                >
+                  {#if expandedPlayer === session.local_session_id}
+                    <!-- close icon -->
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                      <line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/>
+                    </svg>
+                  {:else}
+                    <!-- play icon -->
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                      <polygon points="3 2 12 7 3 12"/>
+                    </svg>
+                  {/if}
+                </button>
                 <ShareAudioButton
                   sessionId={session.local_session_id}
                   chunkCount={stats.chunkCount}
                   variant="icon"
                 />
               {/if}
-              <button
-                class="del-btn"
-                onclick={(e) => del(session, e)}
-                title="Delete session"
-                aria-label="Delete"
-              >
-                <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                  <path d="M2 4h11M6 4V2h3v2M5 4l.5 9M10 4l-.5 9M7.5 4v9"/>
-                </svg>
-              </button>
+
+              <!-- ⋮ overflow menu: purge audio / delete entirely -->
+              <div class="menu-wrap" role="none">
+                <button
+                  class="action-btn menu-trigger"
+                  onclick={(e) => openActionMenu(session.local_session_id, e)}
+                  aria-label="Actions"
+                  title="Actions"
+                >
+                  <svg width="4" height="14" viewBox="0 0 4 16" fill="currentColor">
+                    <circle cx="2" cy="2"  r="1.5"/>
+                    <circle cx="2" cy="8"  r="1.5"/>
+                    <circle cx="2" cy="14" r="1.5"/>
+                  </svg>
+                </button>
+
+                {#if openMenu === session.local_session_id}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div class="action-menu animate-fade-in" role="menu" onclick={(e) => e.stopPropagation()}>
+                    {#if stats.totalBytes > 0}
+                      <button
+                        class="menu-item"
+                        role="menuitem"
+                        onclick={(e) => purgeAudio(session, e)}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                          <path d="M2 4h11M6 4V2h3v2M5 4l.5 9M10 4l-.5 9M7.5 4v9"/>
+                        </svg>
+                        Purger l'audio
+                        <span class="menu-hint">{formatBytes(stats.totalBytes)}</span>
+                      </button>
+                    {/if}
+                    <button
+                      class="menu-item menu-item-danger"
+                      role="menuitem"
+                      onclick={(e) => del(session, e)}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                        <path d="M2 4h11M6 4V2h3v2M5 4l.5 9M10 4l-.5 9M7.5 4v9"/>
+                      </svg>
+                      Supprimer entièrement
+                    </button>
+                  </div>
+                {/if}
+              </div>
             </div>
           {/if}
         </div>
+
+        <!-- Inline player (shown when expanded) -->
+        {#if !compact && expandedPlayer === session.local_session_id}
+          <div class="player-wrap" role="none" onclick={(e) => e.stopPropagation()}>
+            <SessionPlayer sessions={playerSessions(session)} />
+          </div>
+        {/if}
       {/each}
     </div>
 
@@ -331,7 +443,8 @@
     border-top: 1px solid var(--ev-border);
   }
 
-  .del-btn {
+  /* ── Action buttons (play inline, share, menu trigger) ── */
+  .action-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -343,14 +456,69 @@
     color: var(--ev-text-dim);
     cursor: pointer;
     transition: all 120ms;
-    margin-left: auto;
+    flex-shrink: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .action-btn:hover { border-color: rgba(255,255,255,0.12); color: var(--ev-text); background: rgba(255,255,255,0.04); }
+  .action-btn.active { color: var(--ev-blue); border-color: rgba(154,209,255,0.3); background: var(--ev-blue-bg); }
+
+  .play-inline-btn { color: var(--ev-blue); }
+  .play-inline-btn:hover { border-color: rgba(154,209,255,0.35); background: var(--ev-blue-bg); }
+
+  .menu-trigger { margin-left: auto; }
+
+  /* ── Overflow action menu ── */
+  .menu-wrap {
+    position: relative;
     flex-shrink: 0;
   }
-  .del-btn:hover {
-    border-color: var(--ev-danger);
-    color: var(--ev-danger);
-    background: rgba(229,72,77,0.08);
+  .action-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 4px);
+    background: var(--ev-surface, #1a1a2e);
+    border: 1px solid var(--ev-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    z-index: 200;
+    min-width: 180px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.55);
   }
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: none;
+    border-bottom: 1px solid var(--ev-border);
+    background: none;
+    color: var(--ev-text);
+    font-size: 0.82rem;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    transition: background 80ms;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .menu-item:last-child { border-bottom: none; }
+  .menu-item:hover { background: rgba(255,255,255,0.05); }
+  .menu-item-danger { color: var(--ev-danger, #e5484d); }
+  .menu-item-danger:hover { background: rgba(229,72,77,0.08); }
+  .menu-hint { margin-left: auto; font-size: 0.7rem; color: var(--ev-text-dim); }
+
+  /* ── Inline player ── */
+  .player-wrap {
+    margin-top: var(--sp-2);
+    padding: 0 2px;
+  }
+
+  @keyframes animate-fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-in { animation: animate-fade-in 120ms ease-out; }
 
   /* ── List header ── */
   .list-header {

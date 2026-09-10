@@ -1,11 +1,10 @@
 // knowledgeSessionApi — real backend contract for EigenVertex KnowledgeSession.
 //
-// Flow at Start Session — recorder form + recorder geolocation are the
-// source of truth at the moment of Start (they always win over whatever was
-// pre-entered in the app for a planned session):
-//   Case A (planned session): recorderSync(reconcile) → registerDevice → startSession
-//   Case B (free session):    createSession           → registerDevice → startSession
-//   Case C (Record now):      createSession (minimal) → registerDevice → startSession
+// Session start flows:
+//   Flow A (planned session): recorderSync(reconcile) → devices → start (only if not already live)
+//   Flow B/C (new capture):   startNow() → devices
+//     startNow() creates the session, Room and recording state atomically.
+//     Do NOT call POST /start after startNow() — the session is already recording.
 //
 // All calls use the shared request() wrapper from auth/api.ts (JWT, base URL config).
 
@@ -16,9 +15,12 @@ import { getSupportedMimeType } from './audioRecorder';
 // ── Payloads & responses ───────────────────────────────────────────────────
 
 export type KnowledgeSessionType =
-  | 'project_meeting' | 'meeting' | 'interview' | 'expert_interview' | 'voice_note' | 'client_interview'
-  | 'workshop' | 'field_visit' | 'audit_session' | 'follow_up'
-  | 'free_recording' | 'other';
+  | 'meeting'
+  | 'interview'
+  | 'event'
+  | 'media_capture'
+  | 'field_visit'
+  | 'voice_note';
 
 export type KnowledgeSessionMode = 'online' | 'offline' | 'hybrid';
 
@@ -32,6 +34,64 @@ export function toParticipantPayload(names: string[]): ParticipantPayload[] | un
   const list = names.map((n) => n.trim()).filter(Boolean).map((display_name) => ({ display_name }));
   return list.length ? list : undefined;
 }
+
+// ── POST /v1/knowledge-sessions/start-now ─────────────────────────────────
+//
+// Preferred path for all new captures (Flow B/C). Creates the KnowledgeSession,
+// Room and recording state in a single atomic call. After this call:
+//   • session.status === 'recording' — do NOT call POST /start again
+//   • room.id is the canonical Room — persist it, never fabricate it locally
+//
+// request_id: client-generated idempotency key. Include on every call so that
+// a retry after network loss doesn't create a second session. The backend may
+// not yet honor this field — if it doesn't, the client must use GET /recordable
+// to search for the session before retrying.
+
+export interface StartNowPayload {
+  title?:              string | null;
+  session_type?:       KnowledgeSessionType;
+  interaction_subtype?: string | null;
+  business_context?:   string | null;
+  knowledge_intent?:   string;
+  target_type?:        string;
+  workspace_id?:       string | null;
+  project_id?:         string | null;
+  target_corpus_id?:   string | null;
+  subject?:            string | null;
+  agenda?:             string | null;
+  location_label?:     string | null;
+  geo_lat?:            number | null;
+  geo_lng?:            number | null;
+  participants?:       ParticipantPayload[];
+  metadata_json?:      Record<string, unknown>;
+  request_id?:         string;  // idempotency key — send always; backend may not honor yet
+}
+
+/**
+ * Response from POST /v1/knowledge-sessions/start-now.
+ * The exact JSON shape depends on the backend implementation. If the backend
+ * wraps session and room in nested objects, adjust the field mapping in
+ * startNowKnowledgeSession() accordingly rather than changing this type.
+ */
+export interface StartNowResponse {
+  id:      string;   // knowledge session UUID
+  room_id: string;   // canonical Room UUID (may be null if Room creation is deferred)
+  status:  string;   // should be 'recording'
+  title:   string;
+}
+
+export async function startNowKnowledgeSession(
+  payload: StartNowPayload
+): Promise<StartNowResponse> {
+  return request<StartNowResponse>('/knowledge-sessions/start-now', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// ── POST /v1/knowledge-sessions (Flow A — planned session creation fallback) ──
+// Used only when creating a NEW session via the full form AND the backend does
+// not yet support start-now with the full payload. Prefer startNowKnowledgeSession.
 
 export interface CreateKnowledgeSessionPayload {
   workspace_id?:   string | null;
@@ -78,11 +138,20 @@ export interface RecorderSyncPayload {
 export interface KnowledgeSessionResponse {
   id:           string;
   title:        string;
-  session_type: KnowledgeSessionType;
+  session_type: string;
   mode:         KnowledgeSessionMode;
   status:       string;
   created_at:   string;
 }
+
+// ── Device capabilities ────────────────────────────────────────────────────
+//
+// Two-level capture_profile schema (§3.C of the start-contract):
+//   session.metadata_json.capture_profile  = 'microphone_only' | 'system_audio_only' | 'system_and_microphone'
+//   device.capabilities_json.source        = 'microphone' | 'system_audio'
+//
+// `mode=online` (session field) describes network connectivity, not audio source — never use it
+// to signal that system audio is being captured.
 
 export interface DeviceCapabilities {
   platform:      string;
@@ -90,7 +159,9 @@ export interface DeviceCapabilities {
   sample_rate:   number;
   codec:         string;
   channels:      number;
-  capture_type:  'native_avaudiorecorder' | 'web_mediarecorder';
+  /** Audio source for this device: 'microphone' for all Recorder captures. */
+  source:        'microphone' | 'system_audio';
+  encoding:      string;       // 'pcm_s16le' for stream mode; matches WebSocket handshake
   is_native:     boolean;
   user_agent?:   string;
 }
@@ -124,15 +195,10 @@ export interface AudioChunkUploadParams {
 
 /**
  * Upload a single audio chunk to EigenVertex.
- *
- * AUDIO_ENDPOINT_TBD — the exact path must be confirmed with the backend team.
- * Candidates (do not hardcode until validated):
- *   POST /v1/knowledge-sessions/{id}/audio-chunks
- *   POST /v1/knowledge-sessions/{id}/devices/{device_id}/audio-chunks
- *
- * The function is fully wired with the correct metadata. Swap the commented
- * placeholder below with the real path once confirmed, without changing the
- * call signature anywhere in the codebase.
+ * Batch fallback path — used when WebSocket realtime is unavailable.
+ * Chunk assembly on the backend is byte-concatenation (not ffmpeg), so
+ * chunks MUST be raw PCM or a single compatible stream, never independent
+ * containers (.m4a, .webm) that can't be safely concatenated.
  */
 export async function uploadAudioChunk(params: AudioChunkUploadParams): Promise<void> {
   const { knowledge_session_id, device_id, blob, ...meta } = params;
@@ -150,10 +216,6 @@ export async function uploadAudioChunk(params: AudioChunkUploadParams): Promise<
   form.append('size_bytes',   String(Math.round(meta.size_bytes)));
   form.append('local_session_id', meta.local_session_id);
 
-  // ── AUDIO_ENDPOINT_TBD ──────────────────────────────────────────────────
-  // Replace the path below when the backend audio-chunk endpoint is confirmed.
-  // Do NOT use /recording-sessions — that sub-entity does not exist.
-  // ──────────────────────────────────────────────────────────────────────────
   await request(`/knowledge-sessions/${knowledge_session_id}/audio-chunks`, {
     method:  'POST',
     body:    form,
@@ -177,7 +239,10 @@ export async function stopKnowledgeSession(sessionId: string): Promise<void> {
 
 // ── API calls ──────────────────────────────────────────────────────────────
 
-/** Case B/C — create a new KnowledgeSession from the recorder form (or a minimal "Record now" payload) */
+/** Case B/C — create a new KnowledgeSession from the recorder form.
+ *  @deprecated Prefer startNowKnowledgeSession() which is atomic and avoids orphan draft sessions.
+ *  Keep this for backends that don't yet support /start-now with full metadata.
+ */
 export async function createKnowledgeSession(
   payload: CreateKnowledgeSessionPayload
 ): Promise<KnowledgeSessionResponse> {
@@ -191,8 +256,7 @@ export async function createKnowledgeSession(
  * Case A — reconcile a pre-existing planned session with the recorder's own
  * form state and geolocation right before Start. The recorder is the source
  * of truth at this moment: its location_label/geo_lat/geo_lng must win over
- * whatever was entered earlier in the app, so they are always sent here
- * (never skipped just because the planned session already had a location).
+ * whatever was entered earlier in the app, so they are always sent here.
  */
 export async function syncKnowledgeSessionFromRecorder(
   sessionId: string,
@@ -215,13 +279,30 @@ export async function registerKnowledgeSessionDevice(
   );
 }
 
-/** Mark the session as started on the backend */
+/** Mark the session as started on the backend.
+ *  Only call for Flow A (planned session) when status is 'draft' or 'ready'.
+ *  startNow() already returns a recording session — never call start after startNow.
+ *  Skip if status is already 'recording'; use resumeKnowledgeSession() for 'paused'. */
 export async function startKnowledgeSession(sessionId: string): Promise<void> {
   await request(`/knowledge-sessions/${sessionId}/start`, { method: 'POST' });
 }
 
+/**
+ * Resume a paused session — Flow A only, when planned session status === 'paused'.
+ * Reuses the same device_id and resumes with a monotone frame_index.
+ * Do NOT call start() on a paused session — that may create a state conflict.
+ */
+export async function resumeKnowledgeSession(sessionId: string): Promise<void> {
+  await request(`/knowledge-sessions/${sessionId}/resume`, { method: 'POST' });
+}
+
 // ── Device payload builder ─────────────────────────────────────────────────
 
+/**
+ * Build the device registration payload for the current environment.
+ * Eigen Recorder always captures microphone audio (source: 'microphone').
+ * For system audio, Eigen Companion must be used instead.
+ */
 export function buildDevicePayload(): RegisterDevicePayload {
   const native    = isNative();
   const codec     = getSupportedMimeType();
@@ -241,12 +322,13 @@ export function buildDevicePayload(): RegisterDevicePayload {
   const capabilities: DeviceCapabilities = {
     platform:     native ? 'ios' : platform,
     app_version:  '0.2.0',
-    sample_rate:  48000,
+    sample_rate:  native ? 48000 : 16000,  // PCM stream mode is 16 kHz; native uses 48 kHz
     codec:        native ? 'audio/mp4' : (codec || 'audio/webm'),
     channels:     native ? 2 : 1,
-    capture_type: native ? 'native_avaudiorecorder' : 'web_mediarecorder',
+    source:       'microphone',  // Recorder always captures microphone; system audio → Companion
+    encoding:     'pcm_s16le',   // WebSocket realtime format (matches session_hello handshake)
     is_native:    native,
-    user_agent:   ua.slice(0, 120), // truncate for payload size
+    user_agent:   ua.slice(0, 120),
   };
 
   return {

@@ -6,8 +6,8 @@
 
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { KnowledgeSessionType, CreateSessionParams, RecordableKnowledgeSession } from '$lib/recorder/types';
-  import { SESSION_TYPE_LABELS } from '$lib/recorder/types';
+  import type { CreateSessionParams, RecordableKnowledgeSession, CaptureProfile, AudioSource } from '$lib/recorder/types';
+  import { SESSION_TYPE_LABELS, CAPTURE_PROFILES } from '$lib/recorder/types';
   import { apiGetRecordableSessions } from '$lib/auth/api';
   import { getCurrentPosition, formatCoords } from '$lib/recorder/geolocation';
   import { langStore, t } from '$lib/i18n/index';
@@ -20,20 +20,55 @@
   } = $props();
 
   // ── Form fields ──────────────────────────────────────────────
-  let title:           string               = $state('');
-  let session_type:    KnowledgeSessionType = $state('project_meeting');
-  let subject:         string               = $state('');
-  let agenda:          string               = $state('');
-  let participantsRaw: string               = $state('');
-  let location_label:  string               = $state('');
+  let title:           string = $state('');
+  let subject:         string = $state('');
+  let agenda:          string = $state('');
+  let participantsRaw: string = $state('');
+  let location_label:  string = $state('');
+
+  // ── Capture profile (replaces session_type dropdown) ─────────
+  // When a planned session is selected, profile is null — the session carries its own type.
+  let selectedProfile: CaptureProfile | null = $state(CAPTURE_PROFILES[0]); // default: Notes
+
+  // ── Audio source (for profiles that may have online audio) ───
+  // 'microphone_only' is the default and the only mode Recorder captures natively.
+  // System audio profiles show the Companion recommendation.
+  let audioSource: AudioSource = $state('microphone_only');
+
+  // ── Remote participants ───────────────────────────────────────
+  // null = unanswered / 'not sure', false = No, true = Yes
+  let remoteParticipants: boolean | null = $state(null);
+  // Whether user chose to continue without Companion despite the recommendation
+  let continueWithoutCompanion = $state(false);
 
   // Raw recorder geolocation — sent alongside location_label as the source of
   // truth at Start time (takes precedence over any app-entered location).
   let geoLat: number | null = $state(null);
   let geoLng: number | null = $state(null);
-  let geoFromDevice = $state(false); // true once a real GPS fix has been captured (vs. manual text entry)
+  let geoFromDevice = $state(false); // true once a real GPS fix has been captured
 
-  const SESSION_TYPES = Object.entries(SESSION_TYPE_LABELS) as [KnowledgeSessionType, string][];
+  // ── Derived: should we show Companion check? ─────────────────
+  let showCompanionCheck = $derived(
+    selectedProfile?.requires_companion_check === true && selectedSessionId === null
+  );
+  // Remote participants question shown for ALL profiles on new captures (not planned sessions).
+  // Notes is intentionally included: a user may start recording a personal note and end up
+  // capturing an impromptu interview with a remote caller — the question must always be asked
+  // so the metadata faithfully records the session conditions.
+  let showRemoteParticipantsQ = $derived(
+    selectedProfile !== null && selectedSessionId === null
+  );
+  let showCompanionRecommendation = $derived(
+    (audioSource !== 'microphone_only' || remoteParticipants === true) &&
+    !continueWithoutCompanion
+  );
+  // True when user explicitly chose to continue with microphone-only despite needing system audio.
+  // A quality warning must be shown at this point (contract §5: "avertissement clair sur la
+  // qualité et la séparation des voix attendues").
+  let showMicOnlyWarning = $derived(
+    continueWithoutCompanion &&
+    (audioSource !== 'microphone_only' || remoteParticipants === true)
+  );
 
   // ── Address autocomplete (Photon / OpenStreetMap — no API key) ───────────
 
@@ -195,6 +230,14 @@
   let selectedProjectId:   string | null = $state(null);
   let selectedWorkspaceId: string | null = $state(null);
   let selectedTargetCorpusId: string | null = $state(null);
+  // B2: status of the planned session at the moment of selection (drives start/resume/skip)
+  let selectedSessionStatus: string = $state('');
+  // B3: pristine values from the planned session — used to detect recorder modifications.
+  // Only fields in the recorder form are tracked; location is always recorder-owned.
+  let pristineTitle        = $state('');
+  let pristineSubject      = $state('');
+  let pristineAgenda       = $state('');
+  let pristineParticipants = $state('');  // serialized as the raw textarea value
 
   async function loadRecordableSessions() {
     if (!isAuthenticated()) return;
@@ -210,31 +253,53 @@
   }
 
   function applyPlannedMeeting(s: RecordableKnowledgeSession) {
-    selectedSessionId = s.id;
-    selectedProjectId = s.project_id ?? null;
-    selectedWorkspaceId = s.workspace_id ?? null;
+    selectedSessionId      = s.id;
+    selectedSessionStatus  = s.status;          // B2: store for start/resume/skip decision
+    selectedProjectId      = s.project_id ?? null;
+    selectedWorkspaceId    = s.workspace_id ?? null;
     selectedTargetCorpusId = s.target_corpus_id ?? null;
+    // session_type is owned by the planned session — no profile picker shown
+    selectedProfile   = null;
+
+    // Pre-fill form fields from the planned session.
+    // Also snapshot pristine values (B3) so submit() can detect recorder modifications.
     title             = s.title;
-    session_type      = s.session_type;
     subject           = s.subject ?? '';
     agenda            = s.agenda ?? '';
-    if (s.participants?.length) participantsRaw = s.participants.join('\n');
-    // Pre-fill from the planned session, but the recorder's own location
-    // (location_label + geoLat/geoLng captured above) remains the source of
+    const rawParticipants = s.participants?.length ? s.participants.join('\n') : '';
+    participantsRaw   = rawParticipants;
+
+    // Pristine values are trimmed to match how submit() reads the form fields (title.trim() etc.).
+    // Storing raw would cause a false positive when the server returns trailing whitespace.
+    pristineTitle        = (s.title   ?? '').trim();
+    pristineSubject      = (s.subject ?? '').trim();
+    pristineAgenda       = (s.agenda  ?? '').trim();
+    pristineParticipants = rawParticipants;
+
+    // Pre-fill location from planned session, but recorder's GPS remains the source of
     // truth and will override this at Start time via recorder-sync.
-    if (s.location_label && !location_label)   location_label = s.location_label;
+    if (s.location_label && !location_label) location_label = s.location_label;
     showMeetingPicker = false;
   }
 
   function clearSession() {
-    selectedSessionId = null;
-    selectedProjectId = null;
-    selectedWorkspaceId = null;
+    selectedSessionId      = null;
+    selectedSessionStatus  = '';
+    selectedProjectId      = null;
+    selectedWorkspaceId    = null;
     selectedTargetCorpusId = null;
+    pristineTitle        = '';
+    pristineSubject      = '';
+    pristineAgenda       = '';
+    pristineParticipants = '';
     title             = '';
     subject           = '';
     agenda            = '';
     participantsRaw   = '';
+    selectedProfile   = CAPTURE_PROFILES[0]; // restore Notes default
+    audioSource       = 'microphone_only';
+    remoteParticipants = null;
+    continueWithoutCompanion = false;
   }
 
   // ── STT (Web Speech API) ─────────────────────────────────────
@@ -309,13 +374,14 @@
     geoLoading = false;
   }
 
-  // ── Quick Record — no metadata, starts immediately ───────────
+  // ── Quick Record — no metadata, starts immediately (Notes profile) ──────────
   function quickRecord() {
     const now  = new Date();
     const time = now.toLocaleTimeString($langStore === 'fr' ? 'fr-FR' : 'en-US', { hour: '2-digit', minute: '2-digit' });
     onsubmit?.({
-      title:                $langStore === 'fr' ? `Note ${time}` : `Note ${time}`,
+      title:                `Note ${time}`,
       session_type:         'voice_note',
+      capture_profile_id:   'notes',
       subject:              '',
       agenda:               '',
       participants:         [],
@@ -327,6 +393,8 @@
       target_corpus_id:     null,
       knowledge_intent:     'personal_note',
       target_type:          'inbox',
+      audio_source:         'microphone_only',
+      remote_participants:  null,
       knowledge_session_id: null,
       recorder_surface:     'record_now',
     });
@@ -334,10 +402,39 @@
 
   // ── Submit ───────────────────────────────────────────────────
   function submit() {
-    if (!title.trim()) return;
+    if (!title.trim() && !selectedSessionId) return;
+
+    // For planned sessions, session_type comes from the backend session.
+    // For new captures, it comes from the selected profile.
+    const profile      = selectedProfile;
+    const plannedSess  = selectedSessionId
+      ? recordableSessions.find(s => s.id === selectedSessionId)
+      : null;
+    const sessionType  = (plannedSess?.session_type ?? profile?.session_type ?? 'meeting') as import('$lib/recorder/types').KnowledgeSessionType;
+
+    // B3: for flow A, build the set of fields the recorder actually modified.
+    // Fields equal to their pristine planned-session values are omitted from recorder-sync.
+    // For flow B/C (no planned session), recorder_modified_fields is undefined — all fields
+    // are recorder-owned by definition.
+    let recorderModifiedFields: Set<'title' | 'subject' | 'agenda' | 'participants'> | undefined;
+    if (selectedSessionId) {
+      recorderModifiedFields = new Set();
+      if (title.trim() !== pristineTitle)           recorderModifiedFields.add('title');
+      if (subject.trim() !== pristineSubject)       recorderModifiedFields.add('subject');
+      if (agenda.trim() !== pristineAgenda)         recorderModifiedFields.add('agenda');
+      if (participantsRaw !== pristineParticipants) recorderModifiedFields.add('participants');
+    }
+
     onsubmit?.({
-      title:                title.trim(),
-      session_type,
+      title:                title.trim() || ($langStore === 'fr' ? 'Session sans titre' : 'Untitled session'),
+      session_type:         sessionType,
+      capture_profile_id:   profile?.id ?? undefined,
+      interaction_subtype:  plannedSess
+        ? (plannedSess.interaction_subtype ?? null)
+        : (profile?.interaction_subtype ?? null),
+      business_context:     plannedSess
+        ? (plannedSess.business_context ?? null)
+        : (profile?.business_context ?? null),
       subject:              subject.trim(),
       agenda:               agenda.trim(),
       participants:         participantsRaw.split('\n').map(p => p.trim()).filter(Boolean),
@@ -347,9 +444,17 @@
       project_id:           selectedProjectId,
       workspace_id:         selectedWorkspaceId,
       target_corpus_id:     selectedTargetCorpusId,
-      knowledge_intent:     selectedProjectId ? 'operate_project' : undefined,
+      knowledge_intent:     plannedSess
+        ? (plannedSess.knowledge_intent ?? undefined)
+        : (profile?.knowledge_intent ?? (selectedProjectId ? 'operate_project' : 'undecided')),
       target_type:          selectedTargetCorpusId ? 'corpus' : selectedProjectId ? 'project' : 'inbox',
+      audio_source:         audioSource,
+      remote_participants:  remoteParticipants,
       knowledge_session_id: selectedSessionId,
+      // B2: pass planned session status so the store can pick start / resume / skip
+      planned_session_status: selectedSessionStatus || undefined,
+      // B3: set of fields the recorder modified — undefined for flow B/C
+      recorder_modified_fields: recorderModifiedFields,
       recorder_surface:     selectedSessionId ? 'existing_session_form' : 'new_session_form',
     });
   }
@@ -457,12 +562,14 @@
           <span class="planned-toggle-label">
             {recordableSessions.find(s => s.id === selectedSessionId)?.title ?? 'Session selected'}
           </span>
-          <button
-            type="button"
+          <span
             class="clear-session-btn"
-            title="Clear selection"
+            role="button"
+            tabindex="0"
+            aria-label="Clear selection"
             onclick={(e) => { e.stopPropagation(); clearSession(); }}
-          >✕</button>
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); clearSession(); } }}
+          >✕</span>
         {:else}
           <span class="planned-toggle-label">Pick a planned meeting</span>
           {#if meetingsLoading}
@@ -510,15 +617,128 @@
     </div>
   {/if}
 
-  <!-- ── Session type ── -->
-  <div class="form-field">
-    <label for="session-type">Session Type</label>
-    <select id="session-type" class="select" bind:value={session_type}>
-      {#each SESSION_TYPES as [val, label]}
-        <option value={val}>{label}</option>
-      {/each}
-    </select>
-  </div>
+  <!-- ── Capture profile grid (hidden when a planned session is selected) ── -->
+  {#if selectedSessionId === null}
+    <div class="form-field">
+      <label>Session Type</label>
+      <div class="profile-grid">
+        {#each CAPTURE_PROFILES as p (p.id)}
+          <button
+            type="button"
+            class="profile-card"
+            class:selected={selectedProfile?.id === p.id}
+            onclick={() => {
+              selectedProfile = p;
+              audioSource = 'microphone_only';
+              remoteParticipants = null;
+              continueWithoutCompanion = false;
+            }}
+          >
+            <span class="profile-icon">{p.icon}</span>
+            <span class="profile-label">{$langStore === 'fr' ? p.labelFr : p.label}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+
+    <!-- ── Audio source question (for profiles with online content) ── -->
+    {#if showCompanionCheck}
+      <div class="form-field companion-section">
+        <label>Does this session include remote or online audio?</label>
+        <div class="audio-source-btns">
+          <button type="button" class="source-btn" class:selected={audioSource === 'microphone_only'}
+            onclick={() => { audioSource = 'microphone_only'; continueWithoutCompanion = false; }}>
+            No, microphone only
+          </button>
+          <button type="button" class="source-btn" class:selected={audioSource === 'system_audio_only'}
+            onclick={() => { audioSource = 'system_audio_only'; continueWithoutCompanion = false; }}>
+            Yes, system audio only
+          </button>
+          <button type="button" class="source-btn" class:selected={audioSource === 'system_and_microphone'}
+            onclick={() => { audioSource = 'system_and_microphone'; continueWithoutCompanion = false; }}>
+            Yes, system + microphone
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    <!-- ── Remote participants question ── -->
+    {#if showRemoteParticipantsQ}
+      <div class="form-field">
+        <label>Will any participants join remotely?</label>
+        <div class="audio-source-btns">
+          <button type="button" class="source-btn" class:selected={remoteParticipants === false}
+            onclick={() => { remoteParticipants = false; continueWithoutCompanion = false; }}>
+            No
+          </button>
+          <button type="button" class="source-btn" class:selected={remoteParticipants === true}
+            onclick={() => { remoteParticipants = true; continueWithoutCompanion = false; }}>
+            Yes
+          </button>
+          <button type="button" class="source-btn" class:selected={remoteParticipants === null}
+            onclick={() => { remoteParticipants = null; continueWithoutCompanion = false; }}>
+            Not sure
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    <!-- ── Companion recommendation ── -->
+    {#if showCompanionRecommendation}
+      <div class="companion-rec">
+        <div class="companion-rec-header">
+          <span class="companion-rec-icon">💡</span>
+          <strong>Recommended: use Eigen Companion for system audio.</strong>
+        </div>
+        <p class="companion-rec-body">
+          It captures computer audio directly, gives better quality and is less sensitive
+          to room noise.
+          {#if remoteParticipants === true}
+            For remote participants, Companion is required to avoid speaker/microphone feedback loops.
+          {/if}
+        </p>
+        <div class="companion-rec-actions">
+          <button type="button" class="btn btn-sm btn-primary companion-open-btn" disabled>
+            Open Eigen Companion
+          </button>
+          <button type="button" class="btn btn-sm btn-ghost"
+            onclick={() => { continueWithoutCompanion = true; }}>
+            Continue without Companion
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    <!-- ── Microphone-only quality warning (shown after "Continue without Companion") ── -->
+    {#if showMicOnlyWarning}
+      <div class="mic-only-warning">
+        <span class="mic-only-icon">⚠</span>
+        <div class="mic-only-body">
+          <strong>Microphone only — recording without system audio.</strong>
+          {#if remoteParticipants === true}
+            Remote participants' voices will be picked up through your speaker and may be
+            difficult to distinguish or transcribe. For clean remote-voice capture,
+            Eigen Companion is required.
+          {:else}
+            System audio (webinar, video, online content) will not be captured separately.
+            Quality depends on your microphone's ability to pick up room sound.
+          {/if}
+          <button type="button" class="mic-only-undo"
+            onclick={() => { continueWithoutCompanion = false; }}>
+            ← Reconsider
+          </button>
+        </div>
+      </div>
+    {/if}
+  {:else}
+    <!-- Planned session — show its type as a read-only badge, no profile picker -->
+    <div class="form-field">
+      <label>Session Type</label>
+      <div class="planned-type-badge">
+        {SESSION_TYPE_LABELS[recordableSessions.find(s => s.id === selectedSessionId)?.session_type ?? ''] ?? 'Session'}
+      </div>
+    </div>
+  {/if}
 
   <!-- ── Title ── -->
   <div class="form-field">
@@ -614,9 +834,13 @@
     </button>
     <button type="submit" class="btn btn-primary btn-lg" disabled={!title.trim() || loading}>
       {#if loading}
-        <span class="spinner-sm"></span> Creating…
+        <span class="spinner-sm"></span> Starting…
+      {:else if selectedSessionStatus === 'paused'}
+        ▶ Resume Session
+      {:else if selectedSessionStatus === 'recording'}
+        ▶ Rejoin Session
       {:else}
-        ▶ Start Session
+        ▶ Start recording
       {/if}
     </button>
   </div>
@@ -745,6 +969,144 @@
   }
   .geo-suggest:hover { background: rgba(154,209,255,0.12); }
 
+
+  /* ── Profile grid ── */
+  .profile-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .profile-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 6px 8px;
+    background: var(--ev-card, #12121f);
+    border: 1px solid var(--ev-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: border-color 120ms, background 120ms;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .profile-card:hover { border-color: rgba(154,209,255,0.3); background: rgba(154,209,255,0.04); }
+  .profile-card.selected {
+    border-color: var(--ev-blue);
+    background: var(--ev-blue-bg);
+  }
+  .profile-icon { font-size: 1.2rem; line-height: 1; }
+  .profile-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--ev-text-dim);
+    text-align: center;
+    line-height: 1.25;
+  }
+  .profile-card.selected .profile-label { color: var(--ev-blue); }
+
+  /* ── Audio source buttons ── */
+  .companion-section { }
+  .audio-source-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .source-btn {
+    flex: 1;
+    min-width: 120px;
+    padding: 8px 10px;
+    background: var(--ev-card);
+    border: 1px solid var(--ev-border);
+    border-radius: var(--radius-md);
+    color: var(--ev-text-dim);
+    font-size: 0.78rem;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 120ms, color 120ms, background 120ms;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .source-btn:hover { border-color: rgba(154,209,255,0.3); color: var(--ev-text); }
+  .source-btn.selected { border-color: var(--ev-blue); color: var(--ev-blue); background: var(--ev-blue-bg); }
+
+  /* ── Companion recommendation block ── */
+  .companion-rec {
+    background: rgba(59,130,246,0.07);
+    border: 1px solid rgba(154,209,255,0.25);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .companion-rec-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 0.84rem;
+    color: var(--ev-text);
+  }
+  .companion-rec-icon { font-size: 1rem; flex-shrink: 0; }
+  .companion-rec-body {
+    font-size: 0.78rem;
+    color: var(--ev-text-dim);
+    line-height: 1.5;
+    margin: 0;
+  }
+  .companion-rec-actions {
+    display: flex;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    margin-top: 2px;
+  }
+  .companion-open-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Mic-only quality warning (shown after "Continue without Companion") ── */
+  .mic-only-warning {
+    display: flex;
+    gap: 10px;
+    background: rgba(245,158,11,0.08);
+    border: 1px solid rgba(245,158,11,0.3);
+    border-radius: var(--radius-lg);
+    padding: 12px 14px;
+    font-size: 0.8rem;
+  }
+  .mic-only-icon { font-size: 1rem; flex-shrink: 0; color: var(--ev-orange, #f59e0b); margin-top: 1px; }
+  .mic-only-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--ev-text-dim);
+    line-height: 1.5;
+  }
+  .mic-only-body strong { color: var(--ev-orange, #f59e0b); }
+  .mic-only-undo {
+    align-self: flex-start;
+    background: none;
+    border: none;
+    color: var(--ev-blue);
+    font-size: 0.75rem;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    padding: 0;
+    margin-top: 2px;
+    text-decoration: underline;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── Planned session type badge ── */
+  .planned-type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 12px;
+    background: var(--ev-card);
+    border: 1px solid var(--ev-border);
+    border-radius: var(--radius-full, 999px);
+    font-size: 0.78rem;
+    color: var(--ev-text-dim);
+    width: fit-content;
+  }
 
   /* ── Planned meetings ── */
   .planned-section { display: flex; flex-direction: column; gap: var(--sp-2); }

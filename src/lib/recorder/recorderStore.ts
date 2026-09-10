@@ -31,10 +31,11 @@ import { generateLocalId, getBrowserName } from './utils';
 import { isNative } from '$lib/platform';
 import { getAudioEngine } from './audioEngine';
 import {
-  createKnowledgeSession,
+  startNowKnowledgeSession,
   syncKnowledgeSessionFromRecorder,
   registerKnowledgeSessionDevice,
   startKnowledgeSession,
+  resumeKnowledgeSession,
   stopKnowledgeSession,
   uploadAudioChunk,
   buildDevicePayload,
@@ -375,6 +376,7 @@ export const recorderStore = {
         local_session_id:     generateLocalId(),
         remote_session_id:    null,
         knowledge_session_id: params.knowledge_session_id ?? null,
+        room_id:              null,
         device_id:            null,
         title:                params.title.trim() || 'Untitled Session',
         session_type:         params.session_type,
@@ -406,12 +408,28 @@ export const recorderStore = {
         const geoLng   = params.geo_lng ?? null;
         const surface  = params.recorder_surface
           ?? (knowledgeSessionId ? 'existing_session_form'
-              : draft.session_type === 'free_recording' || draft.session_type === 'voice_note' ? 'record_now' : 'new_session_form');
+              : draft.session_type === 'voice_note' ? 'record_now' : 'new_session_form');
         const metadataJson = {
           recorder_surface: surface,
+          // Capture profile (two-level schema per §3.C of the start-contract)
+          // capture_profile: top-level audio source for the session
+          // capture_profile_id: UI profile that was selected (for analytics/context)
+          capture_profile:    params.audio_source ?? 'microphone_only',
+          capture_profile_id: params.capture_profile_id ?? null,
+          // ── TEMPORARY — compatibility keys per contract §6 ─────────────────
+          // remote_participants, companion_recommended, companion_required_for_remote_audio
+          // are free JSON keys until the backend promotes them to first-class fields.
+          // See docs/eigen-recorder-companion-session-start-contract.md §6:
+          //   "À terme, remote_participants et capture_profile doivent devenir des champs
+          //    de contrat de première classe plutôt que des clés JSON libres."
+          // Replace with typed API fields once the backend schema is updated.
+          // ──────────────────────────────────────────────────────────────────
+          remote_participants:            params.remote_participants ?? null,
+          companion_recommended:          params.audio_source !== 'microphone_only',
+          companion_required_for_remote_audio: params.remote_participants === true,
           capture_routing: {
             knowledge_intent: params.knowledge_intent
-              ?? (draft.session_type === 'free_recording' || draft.session_type === 'voice_note'
+              ?? (draft.session_type === 'voice_note'
                 ? 'personal_note' : params.project_id ? 'operate_project' : 'undecided'),
             target_type: params.target_type
               ?? (params.target_corpus_id ? 'corpus' : params.project_id ? 'project' : 'inbox'),
@@ -422,84 +440,125 @@ export const recorderStore = {
         };
 
         try {
+          let roomId: string | null = null;
+
           if (knowledgeSessionId) {
-            // Flow A — reconcile the pre-existing planned session with the
-            // recorder's current form state + geolocation before starting it.
+            // ── Flow A — planned session ──────────────────────────────────
+            // B3: recorder-sync is a TRUE PATCH — only recorder-owned fields are sent.
+            // Location is always recorder-owned (source of truth per contract §2.C).
+            // Title, subject, agenda, participants are only sent if the user actually
+            // modified them from the planned session's values (tracked via recorder_modified_fields).
+            // This prevents the recorder from silently overwriting rich Studio data with empty values.
+            const mf = params.recorder_modified_fields;
             await syncKnowledgeSessionFromRecorder(knowledgeSessionId, {
-              target_corpus_id: params.target_corpus_id ?? null,
-              project_id:     params.project_id ?? null,
+              // Routing: always sent when recorder has context
+              target_corpus_id:    params.target_corpus_id ?? null,
+              project_id:          params.project_id ?? null,
               interaction_subtype: params.interaction_subtype,
-              business_context: params.business_context,
-              title:          draft.title,
-              session_type:   draft.session_type,
-              mode:           'online',
-              subject:        draft.subject || null,
-              agenda:         draft.agenda  || null,
-              location_label: draft.location_label,
-              geo_lat:        geoLat,
-              geo_lng:        geoLng,
-              participants:   toParticipantPayload(draft.participants),
-              metadata_json:  metadataJson,
+              business_context:    params.business_context,
+              // Location: always recorder-owned
+              location_label:      draft.location_label,
+              geo_lat:             geoLat,
+              geo_lng:             geoLng,
+              // Content fields: only send if recorder modified them
+              title:               mf?.has('title')        ? draft.title : undefined,
+              subject:             mf?.has('subject')      ? (draft.subject || null) : undefined,
+              agenda:              mf?.has('agenda')        ? (draft.agenda  || null) : undefined,
+              participants:        mf?.has('participants')  ? toParticipantPayload(draft.participants) : undefined,
+              // Do NOT send session_type or mode — the planned session owns those.
+              metadata_json:       metadataJson,
             });
+
+            const deviceRes = await registerKnowledgeSessionDevice(
+              knowledgeSessionId,
+              buildDevicePayload()
+            );
+
+            // B2: start / resume / skip — conditional on the planned session's current status.
+            //   'recording' → already live, skip POST /start (would be a no-op or 409)
+            //   'paused'    → POST /resume (reuses device, monotone frame_index)
+            //   other       → POST /start (normal path for 'draft' / 'ready')
+            const plannedStatus = params.planned_session_status ?? '';
+            if (plannedStatus === 'recording') {
+              // Already live — device registered, nothing more to do here.
+            } else if (plannedStatus === 'paused') {
+              await resumeKnowledgeSession(knowledgeSessionId);
+            } else {
+              await startKnowledgeSession(knowledgeSessionId);
+            }
+
+            const withDevice: LocalKnowledgeSession = {
+              ...draft,
+              knowledge_session_id: knowledgeSessionId,
+              room_id:              roomId,   // Flow A: room_id not returned here; client fetches via room endpoint if needed
+              device_id:            deviceRes.id,
+              mode:                 'online',
+              status:               'ready',
+              metadata: { ...draft.metadata, recorded_offline: false, ...metadataJson },
+            };
+            await offlineStorage.saveSession(withDevice);
+
+            transition('ready', { currentSession: withDevice, chunks: [], elapsedMs: 0, totalSizeBytes: 0 });
+            return withDevice.local_session_id;
+
           } else {
-            // Flow B (full form) / Flow C (Record now) — create the backend
-            // KnowledgeSession from the recorder form (Record now uses a
-            // minimal payload but still creates a real session).
-            const created = await createKnowledgeSession({
-              workspace_id:   params.workspace_id ?? null,
-              project_id:     params.project_id ?? null,
-              target_corpus_id: params.target_corpus_id ?? null,
-              title:          draft.title,
-              session_type:   draft.session_type,
-              mode:           'online',
-              subject:        draft.subject || null,
-              agenda:         draft.agenda  || null,
-              location_label: draft.location_label,
-              geo_lat:        geoLat,
-              geo_lng:        geoLng,
-              participants:   toParticipantPayload(draft.participants),
-              knowledge_intent: params.knowledge_intent,
-              target_type:      params.target_type,
-              interaction_subtype: params.interaction_subtype,
-              business_context: params.business_context,
-              metadata_json:  metadataJson,
+            // ── Flow B / C — new capture ──────────────────────────────────
+            // startNow() creates the session + Room atomically and returns
+            // status 'recording'. Do NOT call POST /start afterward.
+            //
+            // Idempotency: request_id is sent so the backend can deduplicate
+            // retries. If the backend doesn't yet honor request_id, the client
+            // should search GET /recordable before retrying to avoid duplicates.
+            const started = await startNowKnowledgeSession({
+              title:               draft.title !== 'Untitled Session' ? draft.title : undefined,
+              session_type:        draft.session_type as import('./knowledgeSessionApi').KnowledgeSessionType,
+              interaction_subtype: params.interaction_subtype ?? null,
+              business_context:    params.business_context ?? null,
+              knowledge_intent:    params.knowledge_intent,
+              target_type:         params.target_type,
+              workspace_id:        params.workspace_id ?? null,
+              project_id:          params.project_id ?? null,
+              target_corpus_id:    params.target_corpus_id ?? null,
+              subject:             draft.subject || null,
+              agenda:              draft.agenda  || null,
+              location_label:      draft.location_label,
+              geo_lat:             geoLat,
+              geo_lng:             geoLng,
+              participants:        toParticipantPayload(draft.participants),
+              metadata_json:       metadataJson,
+              request_id:          draft.local_session_id,  // stable client key for idempotency
             });
-            knowledgeSessionId = created.id;
+
+            knowledgeSessionId = started.id;
+            roomId             = started.room_id ?? null;
+
+            const deviceRes = await registerKnowledgeSessionDevice(
+              knowledgeSessionId,
+              buildDevicePayload()
+            );
+
+            const withDevice: LocalKnowledgeSession = {
+              ...draft,
+              // Use backend-returned title if we sent none or it was auto-generated
+              title:                started.title || draft.title,
+              knowledge_session_id: knowledgeSessionId,
+              room_id:              roomId,
+              device_id:            deviceRes.id,
+              mode:                 'online',
+              status:               'ready',
+              metadata: { ...draft.metadata, recorded_offline: false, ...metadataJson },
+            };
+            await offlineStorage.saveSession(withDevice);
+
+            transition('ready', { currentSession: withDevice, chunks: [], elapsedMs: 0, totalSizeBytes: 0 });
+            return withDevice.local_session_id;
           }
-
-          const deviceRes = await registerKnowledgeSessionDevice(
-            knowledgeSessionId,
-            buildDevicePayload()
-          );
-
-          const withDevice: LocalKnowledgeSession = {
-            ...draft,
-            knowledge_session_id: knowledgeSessionId,
-            device_id:            deviceRes.id,
-            mode:                 'online',
-            status:               'draft',
-            metadata: { ...draft.metadata, recorded_offline: false },
-          };
-          await offlineStorage.saveSession(withDevice);
-
-          await startKnowledgeSession(knowledgeSessionId);
-
-          const synced: LocalKnowledgeSession = { ...withDevice, status: 'ready' };
-          await offlineStorage.saveSession(synced);
-
-          transition('ready', {
-            currentSession: synced,
-            chunks:         [],
-            elapsedMs:      0,
-            totalSizeBytes: 0,
-          });
-
-          return synced.local_session_id;
 
         } catch (err) {
           const fallback: LocalKnowledgeSession = {
             ...draft,
             knowledge_session_id: params.knowledge_session_id ?? null,
+            room_id:              null,
             mode:                 'offline',
             status:               'draft',
             metadata: { ...draft.metadata, recorded_offline: true },
