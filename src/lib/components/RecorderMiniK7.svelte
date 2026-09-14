@@ -16,6 +16,7 @@
   import { t, langStore } from '$lib/i18n/index';
   import SyncModeToggle from './SyncModeToggle.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
+  import { openLiveRoom } from '$lib/recorder/liveRoom';
 
   let { localSessionId }: { localSessionId: string } = $props();
 
@@ -87,6 +88,24 @@
 
   async function handleMockUpload() {
     await recorderStore.mockUpload();
+  }
+
+  // ── Live Room ────────────────────────────────────────────────────────────
+  let liveRoomLoading = $state(false);
+  let liveRoomError   = $state('');
+
+  async function handleOpenLiveRoom() {
+    const ksId = session?.knowledge_session_id;
+    if (!ksId) return;
+    liveRoomLoading = true;
+    liveRoomError   = '';
+    try {
+      await openLiveRoom(ksId);
+    } catch (e) {
+      liveRoomError = e instanceof Error ? e.message : 'Impossible d\'ouvrir la Live Room';
+    } finally {
+      liveRoomLoading = false;
+    }
   }
 </script>
 
@@ -277,12 +296,45 @@
             </div>
           {/if}
 
+          {#if session?.knowledge_session_id}
+            <button
+              class="btn btn-live-room btn-full"
+              onclick={handleOpenLiveRoom}
+              disabled={liveRoomLoading}
+            >
+              {#if liveRoomLoading}
+                <span class="spinner-sm"></span> Ouverture…
+              {:else}
+                <span class="live-room-icon">◫</span> Voir la Live Room
+              {/if}
+            </button>
+            {#if liveRoomError}
+              <p class="live-room-error">{liveRoomError}</p>
+            {/if}
+          {/if}
+
           <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
         </div>
       {:else if store.state === 'mock_synced' || store.state === 'synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
           <div class="synced-msg"><span class="synced-check">✓</span>Envoyé à EigenVertex{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
+          {#if session?.knowledge_session_id}
+            <button
+              class="btn btn-live-room btn-full"
+              onclick={handleOpenLiveRoom}
+              disabled={liveRoomLoading}
+            >
+              {#if liveRoomLoading}
+                <span class="spinner-sm"></span> Ouverture…
+              {:else}
+                <span class="live-room-icon">◫</span> Voir la Live Room
+              {/if}
+            </button>
+            {#if liveRoomError}
+              <p class="live-room-error">{liveRoomError}</p>
+            {/if}
+          {/if}
           <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
         </div>
       {:else if isUploading}
@@ -506,6 +558,33 @@
   }
   .stream-done-icon { color: var(--ev-blue); font-size: 1rem; }
   .stream-failed .stream-done-icon { color: var(--ev-orange); }
+
+  /* ── Live Room button ── */
+  .btn-live-room {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    background: rgba(154,209,255,0.08);
+    border: 1px solid rgba(154,209,255,0.3);
+    border-radius: var(--radius-md);
+    color: var(--ev-blue);
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 120ms, border-color 120ms;
+  }
+  .btn-live-room:hover:not(:disabled) { background: rgba(154,209,255,0.14); border-color: var(--ev-blue); }
+  .btn-live-room:disabled { opacity: 0.55; cursor: not-allowed; }
+  .live-room-icon { font-size: 1.05rem; }
+  .live-room-error {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--ev-danger, #e5484d);
+    text-align: center;
+  }
 
   /* ── Sign-in to sync ── */
   .signin-sync-btn {

@@ -237,6 +237,29 @@ export async function stopKnowledgeSession(sessionId: string): Promise<void> {
   await request(`/knowledge-sessions/${sessionId}/stop`, { method: 'POST' });
 }
 
+// ── Live Room ──────────────────────────────────────────────────────────────
+//
+// GET /v1/knowledge-sessions/{id}/room returns the Room entity associated with
+// this session. The `url` field is the publicly-accessible Live Room web UI
+// (transcript, Copilot Margin, summary, export). Open it via Capacitor Browser
+// (in-app WebView on iOS) or window.open on web — never reconstruct the URL
+// locally; always fetch it fresh from the backend so the canonical link is used.
+
+export interface SessionRoomResponse {
+  id:  string;   // EigenVertex Room UUID
+  url: string;   // Web URL for the Live Room (transcript / Copilot Margin / summary)
+  status?: string; // e.g. 'live', 'replay_ready', 'processing'
+}
+
+/**
+ * Fetch the Room entity for a knowledge session.
+ * Returns the Room's web URL — open it via openLiveRoomUrl() or directly.
+ * Throws ApiError if the session has no associated Room yet (404).
+ */
+export async function getRoomForSession(sessionId: string): Promise<SessionRoomResponse> {
+  return request<SessionRoomResponse>(`/knowledge-sessions/${sessionId}/room`);
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 /** Case B/C — create a new KnowledgeSession from the recorder form.

@@ -7,6 +7,7 @@
   import { formatDuration, formatBytes, formatDate } from '$lib/recorder/utils';
   import ShareAudioButton from './ShareAudioButton.svelte';
   import SessionPlayer from './SessionPlayer.svelte';
+  import { openLiveRoom } from '$lib/recorder/liveRoom';
 
   let {
     compact  = false,
@@ -98,6 +99,25 @@
     )) return;
     await offlineStorage.deleteSession(session.local_session_id);
     await load();
+  }
+
+  // ── Live Room ─────────────────────────────────────────────────
+  let liveRoomLoadingId: string | null = $state(null); // local_session_id currently loading
+  let liveRoomErrorId:   string | null = $state(null); // local_session_id with last error
+
+  async function handleOpenLiveRoom(session: LocalKnowledgeSession, e: MouseEvent) {
+    e.stopPropagation();
+    openMenu = null;
+    if (!session.knowledge_session_id) return;
+    liveRoomLoadingId = session.local_session_id;
+    liveRoomErrorId   = null;
+    try {
+      await openLiveRoom(session.knowledge_session_id);
+    } catch {
+      liveRoomErrorId = session.local_session_id;
+    } finally {
+      liveRoomLoadingId = null;
+    }
   }
 
   // ── Selection mode helpers ────────────────────────────────────
@@ -291,6 +311,23 @@
                 {#if openMenu === session.local_session_id}
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <div class="action-menu animate-fade-in" role="menu" onclick={(e) => e.stopPropagation()}>
+                    {#if session.knowledge_session_id}
+                      <button
+                        class="menu-item menu-item-live-room"
+                        role="menuitem"
+                        disabled={liveRoomLoadingId === session.local_session_id}
+                        onclick={(e) => handleOpenLiveRoom(session, e)}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                          <rect x="1" y="3" width="13" height="9" rx="1.5"/>
+                          <path d="M5 7h5M7.5 5v4"/>
+                        </svg>
+                        {liveRoomLoadingId === session.local_session_id ? 'Ouverture…' : 'Voir la Live Room'}
+                        {#if liveRoomErrorId === session.local_session_id}
+                          <span class="menu-hint menu-hint-error">Erreur</span>
+                        {/if}
+                      </button>
+                    {/if}
                     {#if stats.totalBytes > 0}
                       <button
                         class="menu-item"
@@ -506,7 +543,11 @@
   .menu-item:hover { background: rgba(255,255,255,0.05); }
   .menu-item-danger { color: var(--ev-danger, #e5484d); }
   .menu-item-danger:hover { background: rgba(229,72,77,0.08); }
+  .menu-item-live-room { color: var(--ev-blue); }
+  .menu-item-live-room:hover { background: rgba(154,209,255,0.07); }
+  .menu-item-live-room:disabled { opacity: 0.55; cursor: not-allowed; }
   .menu-hint { margin-left: auto; font-size: 0.7rem; color: var(--ev-text-dim); }
+  .menu-hint-error { color: var(--ev-danger, #e5484d); }
 
   /* ── Inline player ── */
   .player-wrap {
