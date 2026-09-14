@@ -911,13 +911,11 @@ export const recorderStore = {
         ? 'collect_knowledge' as const
         : 'personal_note' as const;
 
-      const created = await createKnowledgeSession({
-        workspace_id: null,
-        project_id: null,
-        target_corpus_id: null,
+      // Offline flush — create session + Room atomically via startNow (recording state implied).
+      // Do NOT call startKnowledgeSession() after this — startNow already sets status=recording.
+      const created = await startNowKnowledgeSession({
         title: session.title,
-        session_type: session.session_type === 'free_recording' ? 'voice_note' : session.session_type,
-        mode: 'online',
+        session_type: (session.session_type === 'free_recording' ? 'voice_note' : session.session_type) as import('./knowledgeSessionApi').KnowledgeSessionType,
         subject: session.subject || null,
         agenda: session.agenda || null,
         location_label: session.location_label,
@@ -938,12 +936,10 @@ export const recorderStore = {
       step = 'register device';
       const device = await registerKnowledgeSessionDevice(created.id, buildDevicePayload());
 
-      step = 'start session';
-      await startKnowledgeSession(created.id);
-
       const withBackendContext: LocalKnowledgeSession = {
         ...session,
         knowledge_session_id: created.id,
+        room_id: created.room_id ?? null,
         device_id: device.id,
         mode: 'online',
       };
