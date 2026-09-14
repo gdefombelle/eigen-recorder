@@ -47,6 +47,11 @@
   let geoLng: number | null = $state(null);
   let geoFromDevice = $state(false); // true once a real GPS fix has been captured
 
+  // Declared here (before the $derived blocks below that reference it) even though
+  // the rest of the planned-session state lives further down with the picker logic.
+  // Svelte 5 uses block-scoped `let` — forward references inside $derived are errors.
+  let selectedSessionId: string | null = $state(null);
+
   // ── Derived: should we show Companion check? ─────────────────
   let showCompanionCheck = $derived(
     selectedProfile?.requires_companion_check === true && selectedSessionId === null
@@ -226,7 +231,7 @@
   let recordableSessions: RecordableKnowledgeSession[] = $state([]);
   let meetingsLoading      = $state(false);
   let sessionsError        = $state('');
-  let selectedSessionId:   string | null = $state(null);
+  // selectedSessionId declared earlier (before the $derived blocks that reference it)
   let selectedProjectId:   string | null = $state(null);
   let selectedWorkspaceId: string | null = $state(null);
   let selectedTargetCorpusId: string | null = $state(null);
