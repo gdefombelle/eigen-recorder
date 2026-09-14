@@ -1,8 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-// LOCAL PATH for capacitor-swift-pm — managed by scripts/restore-package-swift.mjs
-// Other dependencies use local node_modules paths (added by cap sync).
+// DO NOT MODIFY THIS FILE - managed by Capacitor CLI commands
 let package = Package(
     name: "CapApp-SPM",
     platforms: [.iOS(.v15)],
@@ -12,7 +11,7 @@ let package = Package(
             targets: ["CapApp-SPM"])
     ],
     dependencies: [
-        .package(name: "capacitor-swift-pm", path: "../../../.capacitor-spm/capacitor-swift-pm"),
+        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.3.4"),
         .package(name: "CapacitorApp", path: "../../../node_modules/@capacitor/app"),
         .package(name: "CapacitorBrowser", path: "../../../node_modules/@capacitor/browser"),
         .package(name: "CapacitorFilesystem", path: "../../../node_modules/@capacitor/filesystem"),

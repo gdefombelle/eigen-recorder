@@ -75,18 +75,40 @@ export interface StartNowPayload {
  */
 export interface StartNowResponse {
   id:      string;   // knowledge session UUID
-  room_id: string;   // canonical Room UUID (may be null if Room creation is deferred)
-  status:  string;   // should be 'recording'
+  room_id: string | null;   // canonical Room UUID (may be null if Room creation is deferred)
+  status:  string;
   title:   string;
+}
+
+interface StartNowWireResponse {
+  session: {
+    id: string;
+    status: string;
+    title: string;
+  };
+  room: {
+    id: string;
+  } | null;
 }
 
 export async function startNowKnowledgeSession(
   payload: StartNowPayload
 ): Promise<StartNowResponse> {
-  return request<StartNowResponse>('/knowledge-sessions/start-now', {
+  const response = await request<StartNowWireResponse>('/knowledge-sessions/start-now', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+
+  if (!response.session?.id) {
+    throw new Error('Invalid start-now response: missing session id');
+  }
+
+  return {
+    id: response.session.id,
+    room_id: response.room?.id ?? null,
+    status: response.session.status,
+    title: response.session.title,
+  };
 }
 
 // ── POST /v1/knowledge-sessions (Flow A — planned session creation fallback) ──
@@ -237,27 +259,45 @@ export async function stopKnowledgeSession(sessionId: string): Promise<void> {
   await request(`/knowledge-sessions/${sessionId}/stop`, { method: 'POST' });
 }
 
-// ── Live Room ──────────────────────────────────────────────────────────────
+// ── Live Room share ────────────────────────────────────────────────────────
 //
-// GET /v1/knowledge-sessions/{id}/room returns the Room entity associated with
-// this session. The `url` field is the publicly-accessible Live Room web UI
-// (transcript, Copilot Margin, summary, export). Open it via Capacitor Browser
-// (in-app WebView on iOS) or window.open on web — never reconstruct the URL
-// locally; always fetch it fresh from the backend so the canonical link is used.
+// POST /v1/knowledge-sessions/{session_id}/live-share
+//
+// Creates (or retrieves an existing) public share link for this session's Live Room.
+// The call is idempotent server-side: a repeated call on the same session returns
+// the same share as long as it has not been revoked or expired.
+//
+// CRITICAL: share_url is constructed server-side and must be used verbatim — never
+// reconstruct it from the token, session id, or title. Always copy the string from
+// the server response all the way to the open/share action.
+//
+// DELETE /v1/knowledge-sessions/{session_id}/live-share
+// Revokes the share. Only call after the user explicitly confirms revocation.
+// Never clear the local cache before the DELETE is confirmed by the server.
 
-export interface SessionRoomResponse {
-  id:  string;   // EigenVertex Room UUID
-  url: string;   // Web URL for the Live Room (transcript / Copilot Margin / summary)
-  status?: string; // e.g. 'live', 'replay_ready', 'processing'
+export interface LiveShareResponse {
+  room_id:    string;
+  session_id: string;
+  share_url:  string;   // ← canonical URL to open — never reconstruct it locally
+  expires_at: string;   // ISO datetime; used for display only, not for cache invalidation
 }
 
 /**
- * Fetch the Room entity for a knowledge session.
- * Returns the Room's web URL — open it via openLiveRoomUrl() or directly.
- * Throws ApiError if the session has no associated Room yet (404).
+ * Create (or retrieve) a public share link for a session's Live Room.
+ * Idempotent server-side. Returns share_url — the only URL to open or share.
  */
-export async function getRoomForSession(sessionId: string): Promise<SessionRoomResponse> {
-  return request<SessionRoomResponse>(`/knowledge-sessions/${sessionId}/room`);
+export async function createLiveShare(sessionId: string): Promise<LiveShareResponse> {
+  return request<LiveShareResponse>(`/knowledge-sessions/${sessionId}/live-share`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Revoke the Live Room share for a session.
+ * Only call after explicit user confirmation, and only clear local cache on success.
+ */
+export async function revokeLiveShare(sessionId: string): Promise<void> {
+  await request(`/knowledge-sessions/${sessionId}/live-share`, { method: 'DELETE' });
 }
 
 // ── API calls ──────────────────────────────────────────────────────────────

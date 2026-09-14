@@ -90,7 +90,7 @@
 
   {#if error}
     <div class="error-msg">
-      {backendError ? '⚠ EigenVertex unreachable.' : error}
+      {backendError ? `⚠ EigenVertex unreachable. ${error}` : error}
       {#if backendError}
         <div class="error-actions">
           <button type="button" class="btn btn-sm btn-primary" onclick={continueOffline} disabled={loading}>

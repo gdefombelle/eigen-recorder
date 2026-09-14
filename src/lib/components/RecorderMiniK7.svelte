@@ -16,7 +16,7 @@
   import { t, langStore } from '$lib/i18n/index';
   import SyncModeToggle from './SyncModeToggle.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
-  import { openLiveRoom } from '$lib/recorder/liveRoom';
+  import { openLiveRoom, shareLiveRoom } from '$lib/recorder/liveRoom';
 
   let { localSessionId }: { localSessionId: string } = $props();
 
@@ -91,8 +91,19 @@
   }
 
   // ── Live Room ────────────────────────────────────────────────────────────
+  // Shown during recording/paused AND after stop. Uses POST /live-share —
+  // the share_url returned by the server is the only URL ever opened or shared.
   let liveRoomLoading = $state(false);
+  let liveRoomSharing = $state(false);
   let liveRoomError   = $state('');
+  let shareConfirm    = $state('');  // brief "Lien copié" / "Partagé" feedback
+
+  // Show the Live Room row whenever the session is backed by EigenVertex
+  // (i.e. knowledge_session_id is set — true from 'ready' state onwards).
+  let canOpenLiveRoom = $derived(
+    !!(session?.knowledge_session_id) &&
+    (isRecording || isPaused || isStopped || store.state === 'mock_synced' || store.state === 'synced')
+  );
 
   async function handleOpenLiveRoom() {
     const ksId = session?.knowledge_session_id;
@@ -105,6 +116,26 @@
       liveRoomError = e instanceof Error ? e.message : 'Impossible d\'ouvrir la Live Room';
     } finally {
       liveRoomLoading = false;
+    }
+  }
+
+  async function handleShareLiveRoom() {
+    const ksId = session?.knowledge_session_id;
+    if (!ksId) return;
+    liveRoomSharing = true;
+    liveRoomError   = '';
+    shareConfirm    = '';
+    try {
+      const result = await shareLiveRoom(ksId, session?.title ?? 'Session');
+      if (result.method === 'clipboard') {
+        shareConfirm = 'Lien copié !';
+        setTimeout(() => { shareConfirm = ''; }, 2500);
+      }
+      // native_share: no confirmation needed — the share sheet gives its own feedback
+    } catch (e) {
+      liveRoomError = e instanceof Error ? e.message : 'Impossible de partager';
+    } finally {
+      liveRoomSharing = false;
     }
   }
 </script>
@@ -248,6 +279,48 @@
         />
       </div>
 
+      <!-- ── Live Room — shown during recording/paused/stopped when session is synced ── -->
+      {#if canOpenLiveRoom && (isRecording || isPaused)}
+        <div class="live-room-row animate-fade-in">
+          <button
+            class="btn-live-room-inline"
+            onclick={handleOpenLiveRoom}
+            disabled={liveRoomLoading}
+            title="Ouvrir la Live Room"
+          >
+            {#if liveRoomLoading}
+              <span class="spinner-sm"></span>
+            {:else}
+              <span class="live-room-icon">◫</span>
+            {/if}
+            Voir la Live Room
+          </button>
+          <button
+            class="btn-live-room-share"
+            onclick={handleShareLiveRoom}
+            disabled={liveRoomSharing}
+            title="Partager le lien"
+          >
+            {#if liveRoomSharing}
+              <span class="spinner-sm"></span>
+            {:else if shareConfirm}
+              ✓
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="2.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><circle cx="3" cy="7.5" r="1.5"/>
+                <line x1="10.5" y1="3.4" x2="4.5" y2="6.6"/><line x1="10.5" y1="11.6" x2="4.5" y2="8.4"/>
+              </svg>
+            {/if}
+          </button>
+        </div>
+        {#if shareConfirm}
+          <p class="share-confirm">{shareConfirm}</p>
+        {/if}
+        {#if liveRoomError && (isRecording || isPaused)}
+          <p class="live-room-error">{liveRoomError}</p>
+        {/if}
+      {/if}
+
       <!-- Safari warning — only on web, not in Capacitor native app -->
       {#if safariLimited && !mimeSupported && !$authStore}
         <div class="warn-box">
@@ -296,21 +369,34 @@
             </div>
           {/if}
 
-          {#if session?.knowledge_session_id}
-            <button
-              class="btn btn-live-room btn-full"
-              onclick={handleOpenLiveRoom}
-              disabled={liveRoomLoading}
-            >
-              {#if liveRoomLoading}
-                <span class="spinner-sm"></span> Ouverture…
-              {:else}
-                <span class="live-room-icon">◫</span> Voir la Live Room
-              {/if}
-            </button>
-            {#if liveRoomError}
-              <p class="live-room-error">{liveRoomError}</p>
-            {/if}
+          {#if canOpenLiveRoom}
+            <div class="live-room-row">
+              <button
+                class="btn-live-room-inline"
+                onclick={handleOpenLiveRoom}
+                disabled={liveRoomLoading}
+              >
+                {#if liveRoomLoading}<span class="spinner-sm"></span>{:else}<span class="live-room-icon">◫</span>{/if}
+                Voir la Live Room
+              </button>
+              <button
+                class="btn-live-room-share"
+                onclick={handleShareLiveRoom}
+                disabled={liveRoomSharing}
+                title="Partager le lien"
+              >
+                {#if liveRoomSharing}<span class="spinner-sm"></span>
+                {:else if shareConfirm}✓
+                {:else}
+                  <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="2.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><circle cx="3" cy="7.5" r="1.5"/>
+                    <line x1="10.5" y1="3.4" x2="4.5" y2="6.6"/><line x1="10.5" y1="11.6" x2="4.5" y2="8.4"/>
+                  </svg>
+                {/if}
+              </button>
+            </div>
+            {#if shareConfirm}<p class="share-confirm">{shareConfirm}</p>{/if}
+            {#if liveRoomError}<p class="live-room-error">{liveRoomError}</p>{/if}
           {/if}
 
           <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
@@ -319,21 +405,34 @@
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
           <div class="synced-msg"><span class="synced-check">✓</span>Envoyé à EigenVertex{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
-          {#if session?.knowledge_session_id}
-            <button
-              class="btn btn-live-room btn-full"
-              onclick={handleOpenLiveRoom}
-              disabled={liveRoomLoading}
-            >
-              {#if liveRoomLoading}
-                <span class="spinner-sm"></span> Ouverture…
-              {:else}
-                <span class="live-room-icon">◫</span> Voir la Live Room
-              {/if}
-            </button>
-            {#if liveRoomError}
-              <p class="live-room-error">{liveRoomError}</p>
-            {/if}
+          {#if canOpenLiveRoom}
+            <div class="live-room-row">
+              <button
+                class="btn-live-room-inline"
+                onclick={handleOpenLiveRoom}
+                disabled={liveRoomLoading}
+              >
+                {#if liveRoomLoading}<span class="spinner-sm"></span>{:else}<span class="live-room-icon">◫</span>{/if}
+                Voir la Live Room
+              </button>
+              <button
+                class="btn-live-room-share"
+                onclick={handleShareLiveRoom}
+                disabled={liveRoomSharing}
+                title="Partager le lien"
+              >
+                {#if liveRoomSharing}<span class="spinner-sm"></span>
+                {:else if shareConfirm}✓
+                {:else}
+                  <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="2.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><circle cx="3" cy="7.5" r="1.5"/>
+                    <line x1="10.5" y1="3.4" x2="4.5" y2="6.6"/><line x1="10.5" y1="11.6" x2="4.5" y2="8.4"/>
+                  </svg>
+                {/if}
+              </button>
+            </div>
+            {#if shareConfirm}<p class="share-confirm">{shareConfirm}</p>{/if}
+            {#if liveRoomError}<p class="live-room-error">{liveRoomError}</p>{/if}
           {/if}
           <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
         </div>
@@ -559,8 +658,15 @@
   .stream-done-icon { color: var(--ev-blue); font-size: 1rem; }
   .stream-failed .stream-done-icon { color: var(--ev-orange); }
 
-  /* ── Live Room button ── */
-  .btn-live-room {
+  /* ── Live Room row (open + share) ── */
+  .live-room-row {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+  }
+  /* Main "Voir la Live Room" button — grows to fill */
+  .btn-live-room-inline {
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -571,18 +677,43 @@
     border-radius: var(--radius-md);
     color: var(--ev-blue);
     font-family: var(--font-display);
-    font-size: 0.95rem;
+    font-size: 0.92rem;
     font-weight: 700;
     cursor: pointer;
     transition: background 120ms, border-color 120ms;
+    -webkit-tap-highlight-color: transparent;
   }
-  .btn-live-room:hover:not(:disabled) { background: rgba(154,209,255,0.14); border-color: var(--ev-blue); }
-  .btn-live-room:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn-live-room-inline:hover:not(:disabled) { background: rgba(154,209,255,0.14); border-color: var(--ev-blue); }
+  .btn-live-room-inline:disabled { opacity: 0.55; cursor: not-allowed; }
+  /* Share icon button — fixed square */
+  .btn-live-room-share {
+    flex-shrink: 0;
+    width: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(154,209,255,0.06);
+    border: 1px solid rgba(154,209,255,0.2);
+    border-radius: var(--radius-md);
+    color: var(--ev-blue);
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 120ms, border-color 120ms;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-live-room-share:hover:not(:disabled) { background: rgba(154,209,255,0.12); border-color: var(--ev-blue); }
+  .btn-live-room-share:disabled { opacity: 0.55; cursor: not-allowed; }
   .live-room-icon { font-size: 1.05rem; }
   .live-room-error {
     margin: 0;
     font-size: 0.78rem;
     color: var(--ev-danger, #e5484d);
+    text-align: center;
+  }
+  .share-confirm {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--ev-blue);
     text-align: center;
   }
 
