@@ -385,6 +385,7 @@ export const recorderStore = {
         agenda:               params.agenda,
         participants:         params.participants,
         location_label:       params.location_label,
+        thread_id:            params.thread_id ?? null,
         created_at:           now,
         started_at:           null,
         ended_at:             null,
@@ -434,6 +435,7 @@ export const recorderStore = {
             target_type: params.target_type
               ?? (params.target_corpus_id ? 'corpus' : params.project_id ? 'project' : 'inbox'),
             target_corpus_id: params.target_corpus_id ?? null,
+            thread_id: params.thread_id ?? null,
           },
           location_source:  geoLat !== null && geoLng !== null ? 'recorder_geolocation'
                             : draft.location_label ? 'manual_entry' : 'unavailable',
@@ -453,6 +455,7 @@ export const recorderStore = {
             await syncKnowledgeSessionFromRecorder(knowledgeSessionId, {
               // Routing: always sent when recorder has context
               target_corpus_id:    params.target_corpus_id ?? null,
+              thread_id:           params.thread_id ?? null,
               project_id:          params.project_id ?? null,
               interaction_subtype: params.interaction_subtype,
               business_context:    params.business_context,
@@ -519,6 +522,7 @@ export const recorderStore = {
               workspace_id:        params.workspace_id ?? null,
               project_id:          params.project_id ?? null,
               target_corpus_id:    params.target_corpus_id ?? null,
+              thread_id:           params.thread_id ?? null,
               subject:             draft.subject || null,
               agenda:              draft.agenda  || null,
               location_label:      draft.location_label,
@@ -922,12 +926,14 @@ export const recorderStore = {
         participants: toParticipantPayload(session.participants),
         knowledge_intent,
         target_type: 'inbox',
+        thread_id: session.thread_id ?? null,
         metadata_json: {
           ...session.metadata,
           capture_routing: {
             knowledge_intent,
             target_type: 'inbox',
             target_corpus_id: null,
+            thread_id: session.thread_id ?? null,
           },
           sync_surface: 'offline_flush',
         },

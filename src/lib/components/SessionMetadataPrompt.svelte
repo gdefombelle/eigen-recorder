@@ -8,10 +8,10 @@
   import { onMount } from 'svelte';
   import type { CreateSessionParams, RecordableKnowledgeSession, CaptureProfile, AudioSource } from '$lib/recorder/types';
   import { SESSION_TYPE_LABELS, CAPTURE_PROFILES } from '$lib/recorder/types';
-  import { apiGetRecordableSessions } from '$lib/auth/api';
+  import { apiCreateThread, apiGetRecordableSessions, apiGetThreads, type RecordableThread } from '$lib/auth/api';
   import { getCurrentPosition, formatCoords } from '$lib/recorder/geolocation';
   import { langStore, t } from '$lib/i18n/index';
-  import { isAuthenticated } from '$lib/auth/auth';
+  import { authStore, isAuthenticated } from '$lib/auth/auth';
 
   let { loading = false, onsubmit, oncancel }: {
     loading?: boolean;
@@ -25,6 +25,12 @@
   let agenda:          string = $state('');
   let participantsRaw: string = $state('');
   let location_label:  string = $state('');
+  let threads: RecordableThread[] = $state([]);
+  let threadsLoading = $state(false);
+  let selectedThreadId: string | null = $state(null);
+  let newThreadTitle = $state('');
+  let threadError = $state('');
+  let threadsLoadedForToken: string | null = $state(null);
 
   // ── Capture profile (replaces session_type dropdown) ─────────
   // When a planned session is selected, profile is null — the session carries its own type.
@@ -234,6 +240,11 @@
   // selectedSessionId declared earlier (before the $derived blocks that reference it)
   let selectedProjectId:   string | null = $state(null);
   let selectedWorkspaceId: string | null = $state(null);
+  let availableThreads = $derived(
+    selectedWorkspaceId
+      ? threads.filter((thread) => thread.workspace_id === selectedWorkspaceId)
+      : threads
+  );
   let selectedTargetCorpusId: string | null = $state(null);
   // B2: status of the planned session at the moment of selection (drives start/resume/skip)
   let selectedSessionStatus: string = $state('');
@@ -263,6 +274,7 @@
     selectedProjectId      = s.project_id ?? null;
     selectedWorkspaceId    = s.workspace_id ?? null;
     selectedTargetCorpusId = s.target_corpus_id ?? null;
+    selectedThreadId        = s.thread_id ?? null;
     // session_type is owned by the planned session — no profile picker shown
     selectedProfile   = null;
 
@@ -293,6 +305,7 @@
     selectedProjectId      = null;
     selectedWorkspaceId    = null;
     selectedTargetCorpusId = null;
+    selectedThreadId        = null;
     pristineTitle        = '';
     pristineSubject      = '';
     pristineAgenda       = '';
@@ -315,6 +328,20 @@
   onMount(() => {
     sttSupported = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
     loadRecordableSessions();
+  });
+
+  // Auth is restored by the parent layout and may complete after this form mounts.
+  // Subscribe to the store so the Thread destination appears as soon as the user is
+  // authenticated, instead of evaluating isAuthenticated() only once at mount time.
+  $effect(() => {
+    const user = $authStore;
+    if (!user || threadsLoadedForToken === user.token) return;
+    threadsLoadedForToken = user.token;
+    threadsLoading = true;
+    apiGetThreads()
+      .then((items) => { threads = items; })
+      .catch(() => { threads = []; })
+      .finally(() => { threadsLoading = false; });
   });
 
   function startSTT(field: FieldName) {
@@ -396,6 +423,7 @@
       project_id:           null,
       workspace_id:         null,
       target_corpus_id:     null,
+      thread_id:            selectedThreadId,
       knowledge_intent:     'personal_note',
       target_type:          'inbox',
       audio_source:         'microphone_only',
@@ -406,7 +434,7 @@
   }
 
   // ── Submit ───────────────────────────────────────────────────
-  function submit() {
+  async function submit() {
     if (!title.trim() && !selectedSessionId) return;
 
     // For planned sessions, session_type comes from the backend session.
@@ -430,6 +458,28 @@
       if (participantsRaw !== pristineParticipants) recorderModifiedFields.add('participants');
     }
 
+    let resolvedThreadId = selectedThreadId;
+    threadError = '';
+    if (selectedThreadId === '__new__') {
+      if (!newThreadTitle.trim()) {
+        threadError = 'Enter a name for the new Thread.';
+        return;
+      }
+      try {
+        const created = await apiCreateThread({
+          title: newThreadTitle.trim(),
+          kind: 'discussion',
+          workspace_id: selectedWorkspaceId
+        });
+        resolvedThreadId = created.id;
+        threads = [created, ...threads];
+        newThreadTitle = '';
+      } catch (error) {
+        threadError = error instanceof Error ? error.message : 'Could not create the Thread.';
+        return;
+      }
+    }
+
     onsubmit?.({
       title:                title.trim() || ($langStore === 'fr' ? 'Session sans titre' : 'Untitled session'),
       session_type:         sessionType,
@@ -449,6 +499,7 @@
       project_id:           selectedProjectId,
       workspace_id:         selectedWorkspaceId,
       target_corpus_id:     selectedTargetCorpusId,
+      thread_id:            resolvedThreadId === '__new__' ? null : resolvedThreadId,
       knowledge_intent:     plannedSess
         ? (plannedSess.knowledge_intent ?? undefined)
         : (profile?.knowledge_intent ?? (selectedProjectId ? 'operate_project' : 'undecided')),
@@ -465,7 +516,7 @@
   }
 </script>
 
-<form class="metadata-form animate-slide-up" onsubmit={(e) => { e.preventDefault(); submit(); }}>
+<form class="metadata-form animate-slide-up" onsubmit={(e) => { e.preventDefault(); void submit(); }}>
 
   <!-- ── Quick Record ── -->
   <button type="button" class="quick-rec-btn" onclick={quickRecord} disabled={loading}>
@@ -619,6 +670,25 @@
           {/if}
         </div>
       {/if}
+    </div>
+  {/if}
+
+  <!-- ── Explicit Thread destination ── -->
+  {#if isAuthenticated()}
+    <div class="form-field">
+      <label for="thread-destination">Thread destination <span style="font-weight:400;opacity:.65">(optional)</span></label>
+      <select id="thread-destination" class="input" bind:value={selectedThreadId} disabled={threadsLoading}>
+        <option value={null}>Let Eigen route automatically</option>
+        {#each availableThreads as thread (thread.id)}
+          <option value={thread.id}>{thread.title}{thread.workspace_id ? '' : ' · Private'}</option>
+        {/each}
+        <option value="__new__">＋ Create a new Thread…</option>
+      </select>
+      {#if selectedThreadId === '__new__'}
+        <input class="input" bind:value={newThreadTitle} placeholder="e.g. Client follow-up — Pie Tempion" aria-label="New Thread label" />
+      {/if}
+      <small class="field-hint">Choose a pre-created Thread to skip triage. Leave this empty for automatic routing.</small>
+      {#if threadError}<small class="field-hint" style="color:var(--red,#b42318)">{threadError}</small>{/if}
     </div>
   {/if}
 

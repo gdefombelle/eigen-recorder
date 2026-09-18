@@ -153,6 +153,33 @@ export async function apiGetRecordableSessions(): Promise<RecordableKnowledgeSes
   return Array.isArray(res) ? res : (res.items ?? []);
 }
 
+export interface RecordableThread {
+  id: string;
+  title: string;
+  kind: string;
+  status: string;
+  workspace_id: string | null;
+}
+
+type ThreadsResponse = RecordableThread[] | { items: RecordableThread[] };
+
+/** Active, user-visible Threads offered as explicit capture destinations. */
+export async function apiGetThreads(): Promise<RecordableThread[]> {
+  const res = await request<ThreadsResponse>('/threads?status=active&limit=200');
+  return Array.isArray(res) ? res : (res.items ?? []);
+}
+
+export async function apiCreateThread(payload: {
+  title: string;
+  kind?: 'reflection' | 'discussion' | 'follow_up' | 'general';
+  workspace_id?: string | null;
+}): Promise<RecordableThread> {
+  return request<RecordableThread>('/threads', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getGoogleLoginUrl(): string {
   const redirectUri = typeof window !== 'undefined'
     ? `${window.location.origin}/auth/callback`

@@ -55,6 +55,7 @@ export interface StartNowPayload {
   knowledge_intent?:   string;
   target_type?:        string;
   workspace_id?:       string | null;
+  thread_id?:          string | null;
   project_id?:         string | null;
   target_corpus_id?:   string | null;
   subject?:            string | null;
@@ -117,6 +118,7 @@ export async function startNowKnowledgeSession(
 
 export interface CreateKnowledgeSessionPayload {
   workspace_id?:   string | null;
+  thread_id?:      string | null;
   project_id?:     string | null;
   target_corpus_id?: string | null;
   title:           string;
@@ -141,6 +143,7 @@ export interface CreateKnowledgeSessionPayload {
  * only the recorder-known subset on every sync.
  */
 export interface RecorderSyncPayload {
+  thread_id?:       string | null;
   target_corpus_id?: string | null;
   project_id?:     string | null;
   interaction_subtype?: string | null;

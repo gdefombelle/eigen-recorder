@@ -115,6 +115,7 @@ export interface RecordableKnowledgeSession {
   workspace_name:       string | null;
   project_id?:          string | null;
   workspace_id?:        string | null;
+  thread_id?:           string | null;
   target_corpus_id?:    string | null;
   knowledge_intent?:    'operate_project' | 'collect_knowledge' | 'personal_note' | 'undecided';
   target_type?:         'project' | 'corpus' | 'inbox';
@@ -178,6 +179,7 @@ export interface LocalKnowledgeSession {
   agenda: string;
   participants: string[];
   location_label: string | null;
+  thread_id?: string | null;
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
@@ -274,6 +276,7 @@ export interface CreateSessionParams {
   // Workspace / project / corpus routing
   project_id?:          string | null;
   workspace_id?:        string | null;
+  thread_id?:           string | null;
   target_corpus_id?:    string | null;
   knowledge_intent?:    'operate_project' | 'collect_knowledge' | 'personal_note' | 'undecided';
   target_type?:         'project' | 'corpus' | 'inbox';
