@@ -8,7 +8,7 @@
   import { onMount } from 'svelte';
   import type { CreateSessionParams, RecordableKnowledgeSession, CaptureProfile, AudioSource } from '$lib/recorder/types';
   import { SESSION_TYPE_LABELS, CAPTURE_PROFILES } from '$lib/recorder/types';
-  import { apiCreateThread, apiGetRecordableSessions, apiGetThreads, type RecordableThread } from '$lib/auth/api';
+  import { apiGetRecordableSessions, apiGetThreads, type RecordableThread } from '$lib/auth/api';
   import { getCurrentPosition, formatCoords } from '$lib/recorder/geolocation';
   import { langStore, t } from '$lib/i18n/index';
   import { authStore, isAuthenticated } from '$lib/auth/auth';
@@ -28,8 +28,6 @@
   let threads: RecordableThread[] = $state([]);
   let threadsLoading = $state(false);
   let selectedThreadId: string | null = $state(null);
-  let newThreadTitle = $state('');
-  let threadError = $state('');
   let threadsLoadedForToken: string | null = $state(null);
 
   // ── Capture profile (replaces session_type dropdown) ─────────
@@ -458,28 +456,6 @@
       if (participantsRaw !== pristineParticipants) recorderModifiedFields.add('participants');
     }
 
-    let resolvedThreadId = selectedThreadId;
-    threadError = '';
-    if (selectedThreadId === '__new__') {
-      if (!newThreadTitle.trim()) {
-        threadError = 'Enter a name for the new Thread.';
-        return;
-      }
-      try {
-        const created = await apiCreateThread({
-          title: newThreadTitle.trim(),
-          kind: 'discussion',
-          workspace_id: selectedWorkspaceId
-        });
-        resolvedThreadId = created.id;
-        threads = [created, ...threads];
-        newThreadTitle = '';
-      } catch (error) {
-        threadError = error instanceof Error ? error.message : 'Could not create the Thread.';
-        return;
-      }
-    }
-
     onsubmit?.({
       title:                title.trim() || ($langStore === 'fr' ? 'Session sans titre' : 'Untitled session'),
       session_type:         sessionType,
@@ -499,7 +475,7 @@
       project_id:           selectedProjectId,
       workspace_id:         selectedWorkspaceId,
       target_corpus_id:     selectedTargetCorpusId,
-      thread_id:            resolvedThreadId === '__new__' ? null : resolvedThreadId,
+      thread_id:            selectedThreadId,
       knowledge_intent:     plannedSess
         ? (plannedSess.knowledge_intent ?? undefined)
         : (profile?.knowledge_intent ?? (selectedProjectId ? 'operate_project' : 'undecided')),
@@ -682,13 +658,8 @@
         {#each availableThreads as thread (thread.id)}
           <option value={thread.id}>{thread.title}{thread.workspace_id ? '' : ' · Private'}</option>
         {/each}
-        <option value="__new__">＋ Create a new Thread…</option>
       </select>
-      {#if selectedThreadId === '__new__'}
-        <input class="input" bind:value={newThreadTitle} placeholder="e.g. Client follow-up — Pie Tempion" aria-label="New Thread label" />
-      {/if}
-      <small class="field-hint">Choose a pre-created Thread to skip triage. Leave this empty for automatic routing.</small>
-      {#if threadError}<small class="field-hint" style="color:var(--red,#b42318)">{threadError}</small>{/if}
+      <small class="field-hint">Choose a pre-created Thread to skip triage. Leave this empty for automatic routing. Create Threads in Eigen Studio.</small>
     </div>
   {/if}
 

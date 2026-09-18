@@ -169,17 +169,6 @@ export async function apiGetThreads(): Promise<RecordableThread[]> {
   return Array.isArray(res) ? res : (res.items ?? []);
 }
 
-export async function apiCreateThread(payload: {
-  title: string;
-  kind?: 'reflection' | 'discussion' | 'follow_up' | 'general';
-  workspace_id?: string | null;
-}): Promise<RecordableThread> {
-  return request<RecordableThread>('/threads', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-}
-
 export function getGoogleLoginUrl(): string {
   const redirectUri = typeof window !== 'undefined'
     ? `${window.location.origin}/auth/callback`
