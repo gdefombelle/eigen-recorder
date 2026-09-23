@@ -36,12 +36,13 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,ico,woff2}'],
+        navigateFallback: '/index.html',
         runtimeCaching: []
       },
       manifest: {
-        name: 'Eigen Meeting',
-        short_name: 'EigenMtg',
-        description: 'Eigen Meeting — Offline-First Audio Capture',
+        name: 'Eigen Pocket',
+        short_name: 'EigenPkt',
+        description: 'Eigen Pocket — Offline-First Audio Capture',
         theme_color: '#0d1526',
         background_color: '#070c1a',
         display: 'standalone',

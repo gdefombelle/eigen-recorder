@@ -16,7 +16,8 @@ Notes:
   - Default env file      : /home/gabriel/eigenvertex-recorder.env
     (static app — file can be empty, but must exist)
   - Default network       : eigenvertex_network
-  - Domain                : recorder.eigenvertex.com (nginx handles HTTPS)
+  - Domain (canonical)    : pocket.eigenvertex.com (nginx handles HTTPS)
+  - Domain (legacy, keep) : recorder.eigenvertex.com (kept active during transition)
   - Container name matches nginx proxy_pass: http://eigenvertex_recorder:3000
 EOF
 }
@@ -201,4 +202,4 @@ cleanup_backup
 rm -f "${SERVICE_NAME}.tar"
 EOF
 
-echo "Deployed successfully → https://recorder.eigenvertex.com"
+echo "Deployed successfully → https://pocket.eigenvertex.com  (also: https://recorder.eigenvertex.com)"
