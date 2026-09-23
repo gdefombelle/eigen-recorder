@@ -90,7 +90,7 @@ const translations = {
       recentSessions:    'Sessions récentes',
       seeAll:            'Voir tout →',
       sessions:          'Sessions',
-      offlineFirst:      'Enregistreur audio offline-first pour Eigen Meeting',
+      offlineFirst:      'Enregistreur audio offline-first pour Eigen Pocket',
     },
     common: {
       online:            'En ligne',
@@ -186,7 +186,7 @@ const translations = {
       recentSessions:    'Recent sessions',
       seeAll:            'See all →',
       sessions:          'Sessions',
-      offlineFirst:      'Offline-first audio recorder for Eigen Meeting',
+      offlineFirst:      'Offline-first audio recorder for Eigen Pocket',
     },
     common: {
       online:            'Online',

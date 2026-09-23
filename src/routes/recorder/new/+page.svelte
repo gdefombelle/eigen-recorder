@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
 </script>
 
-<svelte:head><title>New Session — Eigen Meeting</title></svelte:head>
+<svelte:head><title>New Session — Eigen Pocket</title></svelte:head>
 
 <main>
   <div class="page">

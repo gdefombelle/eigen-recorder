@@ -4,12 +4,11 @@
   import { t, langStore } from '$lib/i18n/index';
   import { tokenToUser, setUser, type EVUser } from '$lib/auth/auth';
   import { apiMeWithToken } from '$lib/auth/api';
+  import { completeWebPkceLogin } from '$lib/auth/pkceFlow';
 
   type Status = 'loading' | 'error';
   let status: Status = 'loading';
   let errorDetail    = '';
-
-  // langStore accessed reactively in template — no explicit $: needed
 
   onMount(async () => {
     const qp   = new URLSearchParams(window.location.search);
@@ -19,6 +18,25 @@
 
     const next = qp.get('next') ?? hash.get('next') ?? '/recorder';
 
+    // ── Path 1: PKCE web callback (code + state) ─────────────────────────────
+    // The web PKCE flow navigates the tab to /auth/authorize, which redirects
+    // back here with ?code=...&state=... — complete the exchange via pkceFlow.ts.
+    const code  = qp.get('code');
+    const state = qp.get('state');
+
+    if (code && state) {
+      try {
+        const result = await completeWebPkceLogin(code, state);
+        goto(result.next, { replaceState: true });
+      } catch (e) {
+        errorDetail = e instanceof Error ? e.message : String(e);
+        status = 'error';
+      }
+      return;
+    }
+
+    // ── Path 2: legacy token callback (session_token / access_token) ──────────
+    // Used by magic-link or session-based auth flows. Kept for backward compat.
     const rawToken =
       qp.get('session_token') ?? qp.get('token') ?? qp.get('ev_token') ??
       qp.get('access_token')  ?? qp.get('id_token') ??

@@ -172,7 +172,7 @@
         <circle cx="12.27" cy="15"  r="1" fill="#4ade80"/>
         <circle cx="15.73" cy="15"  r="1" fill="#4ade80"/>
       </svg>
-      <span class="brand-name">EIGEN MEETING</span>
+      <span class="brand-name">EIGEN POCKET</span>
     </div>
 
     <div class="conn-badge" class:online={store.isOnline} class:offline={!store.isOnline}>

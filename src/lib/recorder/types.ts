@@ -1,4 +1,4 @@
-// ===== EIGEN MEETING — TYPES =====
+// ===== EIGEN POCKET — TYPES =====
 
 // ── Canonical backend session types (6 values — maps to KnowledgeSessionCanonicalType enum) ──
 // These are the only values the EigenVertex backend accepts. Any other value → 422.

@@ -18,7 +18,7 @@
       <div class="cs-icon">🔗</div>
       <h3>Coming soon</h3>
       <p>
-        Join a live Eigen Meeting room from a session code or QR scan.<br />
+        Join a live Eigen Pocket room from a session code or QR scan.<br />
         This requires a connected EigenVertex backend.
       </p>
       <div class="form-field" style="margin-top: var(--sp-5);">

@@ -6,7 +6,7 @@
 </script>
 
 <svelte:head>
-  <title>Recording — Eigen Meeting</title>
+  <title>Recording — Eigen Pocket</title>
 </svelte:head>
 
 <!-- Full-screen — no padding wrapper, RecorderMiniK7 owns the layout -->

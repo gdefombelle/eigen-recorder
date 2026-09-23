@@ -122,7 +122,7 @@
           <circle cx="12.27" cy="15"  r="1" fill="#4ade80"/>
           <circle cx="15.73" cy="15"  r="1" fill="#4ade80"/>
         </svg>
-        <span class="brand-name">EIGEN MEETING</span>
+        <span class="brand-name">EIGEN POCKET</span>
       </div>
 
       <div style="width: 64px; flex-shrink: 0;"></div>
@@ -330,7 +330,7 @@
       <!-- Footer -->
       <div class="version-footer">
         <div class="ev-brand"><span class="ev-dot"></span>EIGENVERTEX</div>
-        <div class="version-str">Eigen Meeting v0.1.0</div>
+        <div class="version-str">Eigen Pocket v0.1.0</div>
       </div>
 
     </div>
