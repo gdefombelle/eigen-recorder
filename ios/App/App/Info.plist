@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Eigen Meeting</string>
+        <string>Eigen Pocket</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -50,11 +50,11 @@
 
 	<!-- ── Microphone permission ── -->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Eigen Meeting uses the microphone to capture meeting audio. Recordings are stored locally on your device and never sent without your explicit action.</string>
+	<string>Eigen Pocket uses the microphone to capture meeting audio. Recordings are stored locally on your device and never sent without your explicit action.</string>
 
 	<!-- ── Location permission ── -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Eigen Meeting uses your location to tag where meetings take place. Only used when you create a session.</string>
+	<string>Eigen Pocket uses your location to tag where meetings take place. Only used when you create a session.</string>
 
 	<!-- ── Background audio — keeps recording when app goes to background ── -->
 	<key>UIBackgroundModes</key>
