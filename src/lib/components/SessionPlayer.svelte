@@ -152,11 +152,29 @@
 
     const mime = track.series[0]?.chunks[0]?.mime_type ?? 'audio/webm;codecs=opus';
 
-    if (!MediaSource.isTypeSupported(mime)) {
-      tracks[ti].loadError = `Format non supporté: ${mime}`;
+    // Collect all chunk blobs upfront (shared by both paths below)
+    const blobs: Blob[] = [];
+    for (const series of track.series) {
+      for (const chunk of series.chunks) {
+        const blob = await offlineStorage.getChunkBlob(chunk.local_chunk_id);
+        if (blob) blobs.push(blob);
+      }
+    }
+
+    if (blobs.length === 0) {
+      tracks[ti].loadError = 'Audio non disponible (purgé)';
       return;
     }
 
+    // audio/x-caf and other native formats are not supported by MediaSource on
+    // WebKit, but play fine via a direct blob URL (iOS handles CAF natively).
+    if (!MediaSource.isTypeSupported(mime)) {
+      el.src = URL.createObjectURL(new Blob(blobs, { type: mime }));
+      tracks[ti].loaded = true;
+      return;
+    }
+
+    // MediaSource path — enables codec-aware concatenation for webm/opus
     const ms = new MediaSource();
     tracks[ti].ms = ms;
     el.src = URL.createObjectURL(ms);
@@ -173,13 +191,9 @@
               sb.appendBuffer(buf);
             });
 
-          for (const series of track.series) {
-            for (const chunk of series.chunks) {
-              const blob = await offlineStorage.getChunkBlob(chunk.local_chunk_id);
-              if (!blob) continue; // audio purged — skip silently
-              const ab = await blob.arrayBuffer();
-              await appendBuffer(ab);
-            }
+          for (const blob of blobs) {
+            const ab = await blob.arrayBuffer();
+            await appendBuffer(ab);
           }
 
           ms.endOfStream();
