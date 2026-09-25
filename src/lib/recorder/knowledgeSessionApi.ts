@@ -262,6 +262,39 @@ export async function stopKnowledgeSession(sessionId: string): Promise<void> {
   await request(`/knowledge-sessions/${sessionId}/stop`, { method: 'POST' });
 }
 
+// ── Audio recovery ─────────────────────────────────────────────────────────
+//
+// POST /v1/knowledge-sessions/{session_id}/audio-recovery
+//
+// Called when the realtime WebSocket stream failed (e.g. fatal
+// "realtime_resume_unavailable") and the full local backup must be uploaded to
+// repair the session server-side. The server reassembles the audio and
+// re-triggers transcription.
+//
+// Never called automatically — only triggered after a confirmed fatal error
+// from the WebSocket transport.
+
+export async function audioRecovery(
+  sessionId:  string,
+  deviceId:   string,
+  recoveryId: string,   // stable UUID per session — use local_session_id for idempotent retries
+  durationMs: number,
+  blob:       Blob,
+  mimeType:   string,
+): Promise<void> {
+  const form = new FormData();
+  form.append('audio',       blob, `recovery.${_extForMime(mimeType)}`);
+  form.append('mime_type',   mimeType);
+  form.append('device_id',   deviceId);
+  form.append('recovery_id', recoveryId);
+  form.append('duration_ms', String(Math.round(durationMs)));
+  await request(`/knowledge-sessions/${sessionId}/audio-recovery`, {
+    method:  'POST',
+    body:    form,
+    headers: {},
+  });
+}
+
 // ── Live Room share ────────────────────────────────────────────────────────
 //
 // POST /v1/knowledge-sessions/{session_id}/live-share

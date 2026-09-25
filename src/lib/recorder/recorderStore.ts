@@ -40,6 +40,7 @@ import {
   uploadAudioChunk,
   buildDevicePayload,
   toParticipantPayload,
+  audioRecovery,
 } from './knowledgeSessionApi';
 import { getUser, isAuthenticated, authStore } from '$lib/auth/auth';
 
@@ -75,6 +76,11 @@ let liveClient: LiveStreamClient | null = null;
 let localBackupMR: MediaRecorder | null = null;
 let localBackupBlobs: Blob[] = [];
 let localBackupMimeType = '';
+
+// Fatal error code from the live stream WebSocket — set by onFatal, cleared
+// at startRecording(). If 'realtime_resume_unavailable', the stop path
+// uploads the full local backup via /audio-recovery to repair the session.
+let streamFatalCode: string | null = null;
 
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 let _creating = false; // idempotence guard
@@ -672,12 +678,25 @@ export const recorderStore = {
         update((s) => ({ ...s, micLevel: level }));
       };
 
-      // PCM frame → WebSocket
+      // PCM frame → WebSocket (buffered internally if reconnecting)
       capture.onFrame = (pcm: ArrayBuffer, frameIndex: number, startMs: number, endMs: number) => {
         client.sendFrame(pcm, { frameIndex, startMs, endMs });
-        // Brief pulse animation
-        update((s) => ({ ...s, streamPulse: true, framesStreamed: s.framesStreamed + 1 }));
+        // Pulse animation on every produced frame (including buffered ones)
+        update((s) => ({ ...s, streamPulse: true }));
         setTimeout(() => update((s) => ({ ...s, streamPulse: false })), 400);
+      };
+
+      // framesStreamed tracks actually-sent frames (not buffered/dropped)
+      client.onStats = (stats) => {
+        update((s) => ({ ...s, framesStreamed: stats.framesSent }));
+      };
+
+      // Fatal server error — realtime stream cannot be resumed.
+      // Store the code; the stop path will upload the local backup for recovery.
+      streamFatalCode = null;
+      client.onFatal = (code) => {
+        streamFatalCode = code;
+        update((s) => ({ ...s, liveStreamState: 'failed' }));
       };
 
       capture.onError = (err: Error) => {
@@ -826,9 +845,11 @@ export const recorderStore = {
       pcmCapture.stop();
       pcmCapture = null;
 
-      // Signal backend end-of-recording via WebSocket before closing
-      liveClient.commit();
-      liveClient.close();
+      // Drain pending frames, signal backend end-of-recording, then close.
+      // commitAndClose() waits for any in-progress reconnect so the commit
+      // is never silently dropped when the socket is temporarily down.
+      await liveClient.commitAndClose();
+      const droppedFrames = liveClient.droppedFrames;
       liveClient = null;
 
       // Stop backup recorder and save local copy for Share Audio
@@ -866,6 +887,53 @@ export const recorderStore = {
       }
       localBackupMR    = null;
       localBackupBlobs = [];
+
+      // If the transport dropped frames (network truncation), tag the session
+      // so the UI or a future recovery flow can surface it to the user.
+      if (droppedFrames > 0) {
+        const latest = get(recorderStore).currentSession ?? currentSession;
+        const taggedSession: LocalKnowledgeSession = {
+          ...latest,
+          metadata: { ...latest.metadata, server_partial: true, dropped_frames: droppedFrames },
+        };
+        await offlineStorage.saveSession(taggedSession);
+        update((s) => ({ ...s, currentSession: taggedSession }));
+      }
+
+      // If the server declared realtime_resume_unavailable, the WebSocket
+      // stream is unrecoverable. Upload the full local backup via
+      // /audio-recovery so the backend can reassemble and re-transcribe.
+      // The local backup is preserved regardless (backup_only status, never
+      // auto-deleted) so manual recovery is always possible.
+      if (streamFatalCode === 'realtime_resume_unavailable') {
+        const sess = get(recorderStore).currentSession ?? currentSession;
+        const ksId = sess.knowledge_session_id;
+        if (ksId) {
+          // Retrieve the blob we just saved to IndexedDB
+          const backupChunks = await offlineStorage.getChunksMeta(sess.local_session_id);
+          const backupChunk  = backupChunks.find(c => c.status === 'backup_only');
+          if (backupChunk) {
+            const backupData = await offlineStorage.getChunkBlob(backupChunk.local_chunk_id);
+            if (backupData) {
+              try {
+                await audioRecovery(
+                  ksId,
+                  sess.device_id ?? '',
+                  sess.local_session_id, // stable UUID — safe to retry
+                  finalMs,
+                  backupData,
+                  backupChunk.mime_type,
+                );
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.error('[recorderStore] audio-recovery upload failed:', msg);
+                // Non-fatal — local backup preserved; user can retry from Sessions
+              }
+            }
+          }
+        }
+        streamFatalCode = null;
+      }
 
       await _finalizeStop(get(recorderStore).currentSession ?? currentSession, finalMs);
       return;
