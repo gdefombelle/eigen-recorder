@@ -16,7 +16,7 @@
 -->
 
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { offlineStorage } from '$lib/recorder/offlineStorage';
   import type { LocalKnowledgeSession, AudioChunkMetadata } from '$lib/recorder/types';
   import { formatDuration } from '$lib/recorder/utils';
@@ -68,15 +68,16 @@
   onMount(async () => {
     try {
       await buildTracks();
-      // Eagerly load all tracks BEFORE showing the play button.
-      // On iOS, el.play() must be called synchronously within a user gesture handler.
-      // Any await between the click and el.play() causes NotAllowedError (silently
-      // swallowed). Pre-loading here means play() never needs to await.
+      // Must set loading=false BEFORE awaiting tick() so the {#each} renders
+      // <audio> elements and bind:this populates audioRefs[].
+      // Without this, audioRefs[ti] is null when loadTrack() runs.
+      loading = false;
+      await tick();
       await ensureAllLoaded();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Impossible de charger l\'audio';
+      loading = false;
     }
-    loading = false;
   });
 
   onDestroy(stop);

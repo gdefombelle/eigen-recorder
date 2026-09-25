@@ -539,12 +539,13 @@
   .play-inline-btn { color: var(--ev-blue); }
   .play-inline-btn:hover { border-color: rgba(154,209,255,0.35); background: var(--ev-blue-bg); }
 
-  .menu-trigger { margin-left: auto; }
+  .menu-trigger { /* margin-left: auto handled by .menu-wrap */ }
 
   /* ── Overflow action menu ── */
   .menu-wrap {
     position: relative;
     flex-shrink: 0;
+    margin-left: auto; /* push ⋮ to right edge of card-actions flex container */
   }
   .action-menu {
     position: fixed;
