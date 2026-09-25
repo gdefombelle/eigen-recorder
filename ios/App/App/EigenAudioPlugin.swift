@@ -37,7 +37,8 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     private lazy var locationDelegate = LocationDelegate()
 
     @objc func requestLocationPermission(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             let status = self.locationManager.authorizationStatus
             if status == .notDetermined {
                 self.locationDelegate.permissionCall = call
@@ -57,7 +58,8 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func getLocation(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             let status = self.locationManager.authorizationStatus
             guard status == .authorizedWhenInUse || status == .authorizedAlways else {
                 call.reject("Permission: \(status.rawValue)")
@@ -119,7 +121,7 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         sessionId  = call.getString("sessionId")    ?? UUID().uuidString
         chunkDurMs = call.getInt("chunkDurationMs") ?? 5000
         let stereo = call.getBool("stereo")         ?? true
-        let sr     = Double(call.getInt("sampleRate") ?? 48000)
+        let sr     = Double(call.getInt("sampleRate") ?? 48_000)
 
         savedChunks      = []
         chunkIndex       = 0
@@ -154,7 +156,7 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         // ~40KB per 5s chunk (vs 480KB for WAV stereo 48kHz).
         recordSettings = [
             AVFormatIDKey:            Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey:          48_000.0,
+            AVSampleRateKey:          sr,
             AVNumberOfChannelsKey:    grantedChannels,
             AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
             AVEncoderBitRateKey:      128_000,
