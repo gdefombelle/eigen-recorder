@@ -31,6 +31,8 @@
   // Track which card has the action menu open
   let openMenu: string | null = $state(null);
   let menuPos = $state<{ top: number; right: number }>({ top: 0, right: 0 });
+  // Direct refs to each ⋮ button — avoids event-delegation surprises in Svelte 5
+  const menuBtnRefs: Record<string, HTMLButtonElement | null> = {};
 
   // Grouped sessions: sessions sharing the same knowledge_session_id → played together
   let sessionGroups = $derived((() => {
@@ -72,11 +74,11 @@
   function openActionMenu(id: string, e: MouseEvent) {
     e.stopPropagation();
     if (openMenu === id) { openMenu = null; return; }
-    // Compute viewport-relative position so the menu can use position:fixed
-    // and escape the overflow-x:hidden on <main> that clips absolute children.
-    // e.currentTarget via Svelte delegation can be the SVG child, not the button.
-    // Use closest('button') to always get the actual button bounding rect.
-    const btn  = ((e.target as HTMLElement).closest('button') ?? e.currentTarget) as HTMLElement;
+    // Use the stored ref — getBoundingClientRect() on the exact button element.
+    // This avoids Svelte 5 event-delegation ambiguity (e.currentTarget / e.target
+    // may point to SVG children, not the button itself).
+    const btn = menuBtnRefs[id];
+    if (!btn) return;
     const rect = btn.getBoundingClientRect();
     menuPos = {
       top:   rect.bottom + 4,
@@ -318,6 +320,7 @@
               <div class="menu-wrap" role="none">
                 <button
                   class="action-btn menu-trigger"
+                  bind:this={menuBtnRefs[session.local_session_id]}
                   onclick={(e) => openActionMenu(session.local_session_id, e)}
                   aria-label="Actions"
                   title="Actions"

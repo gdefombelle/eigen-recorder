@@ -165,10 +165,7 @@
     // isTypeSupported() returns. Only webm/opus from the browser MediaRecorder is
     // already fragmented and safe to feed into SourceBuffer.
     if (!mime.includes('webm')) {
-      // On iOS native, always prefer mergeChunks — it reads the properly finalized
-      // M4A file from disk (Documents/EigenChunks/<sessionId>/). The IndexedDB blob
-      // was captured BEFORE AVAudioRecorder.stop() wrote the MOOV atom, so it may
-      // be incomplete for sessions recorded before this bug was fixed.
+      // On iOS native, prefer mergeChunks — reads the finalized M4A from disk.
       if (isNative()) {
         const sessionId = track.series[0]?.session.local_session_id;
         if (sessionId) {
@@ -178,12 +175,13 @@
             el.src = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
             tracks[ti].loaded = true;
             return;
-          } catch { /* files purged or moved — fall through to IndexedDB blobs */ }
+          } catch (err) {
+            console.error('[SessionPlayer] mergeChunks failed, falling back to IndexedDB:', err);
+          }
         }
       }
 
-      // Fallback: direct blob URL from IndexedDB (valid for sessions recorded after
-      // the stop-before-finalize fix, or for non-native/PWA recordings)
+      // Fallback: direct blob URL from IndexedDB
       const blobs: Blob[] = [];
       for (const chunk of allChunks) {
         const blob = await offlineStorage.getChunkBlob(chunk.local_chunk_id);
@@ -198,7 +196,23 @@
       return;
     }
 
-    // WebM/Opus (browser MediaRecorder) — already fragmented, use MediaSource
+    // WebM/Opus — try direct blob URL on iOS (MediaSource not supported by WKWebView),
+    // fall back to MediaSource on desktop.
+    if (isNative()) {
+      const blobs: Blob[] = [];
+      for (const chunk of allChunks) {
+        const blob = await offlineStorage.getChunkBlob(chunk.local_chunk_id);
+        if (blob) blobs.push(blob);
+      }
+      if (blobs.length === 0) {
+        tracks[ti].loadError = 'Audio non disponible (purgé)';
+        return;
+      }
+      el.src = URL.createObjectURL(new Blob(blobs, { type: mime }));
+      tracks[ti].loaded = true;
+      return;
+    }
+
     if (!MediaSource.isTypeSupported(mime)) {
       tracks[ti].loadError = `Format non supporté: ${mime}`;
       return;
@@ -258,6 +272,7 @@
 
     masterStart_wallclock = Date.now();
     masterStart_elapsed   = elapsed_ms;
+    let started = 0;
 
     for (let ti = 0; ti < tracks.length; ti++) {
       const track = tracks[ti];
@@ -277,13 +292,18 @@
             tracks[ti].loadError = `${(err as Error).name}: ${(err as Error).message}`;
           });
         }, delay);
+        started++;
       } else if (trackLocalTime_ms <= track.trackDuration_ms) {
         el.currentTime = trackLocalTime_ms / 1000;
         el.play().catch((err) => {
           tracks[ti].loadError = `${(err as Error).name}: ${(err as Error).message}`;
         });
+        started++;
       }
     }
+
+    // Don't start the timer if no audio element could actually play
+    if (started === 0) return;
 
     isPlaying = true;
 
@@ -410,10 +430,10 @@
             <div class="playhead" style="left:{(progress * 100).toFixed(2)}%"></div>
           </div>
 
-          <!-- Right column: mute button + load error -->
+          <!-- Right column: mute button -->
           <div class="track-right">
             {#if track.loadError}
-              <span class="track-err" title={track.loadError}>⚠</span>
+              <span class="track-err-icon">⚠</span>
             {:else}
               <button
                 class="mute-btn"
@@ -440,6 +460,11 @@
           </div>
 
         </div>
+
+        <!-- Error message row (full width, visible on mobile) -->
+        {#if track.loadError}
+          <div class="track-error-row">{track.loadError}</div>
+        {/if}
       {/each}
     </div>
 
@@ -605,10 +630,18 @@
   .mute-btn:hover   { color: var(--ev-text, #fff); border-color: rgba(255,255,255,0.2); }
   .mute-btn.muted   { color: var(--ev-danger, #e5484d); border-color: rgba(229,72,77,0.35); background: rgba(229,72,77,0.06); }
 
-  .track-err {
+  .track-err-icon {
     font-size: 0.9rem;
     color: var(--ev-danger, #e5484d);
     cursor: default;
+  }
+
+  .track-error-row {
+    font-size: 0.7rem;
+    color: var(--ev-danger, #e5484d);
+    padding: 2px 0 4px 0;
+    line-height: 1.4;
+    word-break: break-word;
   }
 
   /* ── Transport ── */
