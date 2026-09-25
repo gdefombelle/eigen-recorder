@@ -74,7 +74,9 @@
     if (openMenu === id) { openMenu = null; return; }
     // Compute viewport-relative position so the menu can use position:fixed
     // and escape the overflow-x:hidden on <main> that clips absolute children.
-    const btn  = e.currentTarget as HTMLElement;
+    // e.currentTarget via Svelte delegation can be the SVG child, not the button.
+    // Use closest('button') to always get the actual button bounding rect.
+    const btn  = ((e.target as HTMLElement).closest('button') ?? e.currentTarget) as HTMLElement;
     const rect = btn.getBoundingClientRect();
     menuPos = {
       top:   rect.bottom + 4,

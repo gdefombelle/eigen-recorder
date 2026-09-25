@@ -165,9 +165,11 @@
     // isTypeSupported() returns. Only webm/opus from the browser MediaRecorder is
     // already fragmented and safe to feed into SourceBuffer.
     if (!mime.includes('webm')) {
-      // Multi-chunk native sessions: merge on-device via AVAssetExportSession (files
-      // are kept in Documents/EigenChunks/<sessionId>/ after recording).
-      if (isNative() && allChunks.length > 1) {
+      // On iOS native, always prefer mergeChunks — it reads the properly finalized
+      // M4A file from disk (Documents/EigenChunks/<sessionId>/). The IndexedDB blob
+      // was captured BEFORE AVAudioRecorder.stop() wrote the MOOV atom, so it may
+      // be incomplete for sessions recorded before this bug was fixed.
+      if (isNative()) {
         const sessionId = track.series[0]?.session.local_session_id;
         if (sessionId) {
           try {
@@ -176,11 +178,12 @@
             el.src = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
             tracks[ti].loaded = true;
             return;
-          } catch { /* fall through to blob concat */ }
+          } catch { /* files purged or moved — fall through to IndexedDB blobs */ }
         }
       }
 
-      // Single chunk or fallback: direct blob URL (iOS plays M4A natively)
+      // Fallback: direct blob URL from IndexedDB (valid for sessions recorded after
+      // the stop-before-finalize fix, or for non-native/PWA recordings)
       const blobs: Blob[] = [];
       for (const chunk of allChunks) {
         const blob = await offlineStorage.getChunkBlob(chunk.local_chunk_id);

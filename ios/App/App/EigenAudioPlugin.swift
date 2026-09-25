@@ -226,12 +226,17 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         chunkTimer?.invalidate(); chunkTimer = nil
         levelTimer?.invalidate(); levelTimer = nil
 
-        finaliseCurrentChunk()
+        // Stop BEFORE reading — AVAudioRecorder writes the MOOV atom on stop().
+        // Reading before stop() gives incomplete M4A that browsers can't play.
         recorder?.stop()
+        finaliseCurrentChunk()
         recorder = nil
 
-        try? AVAudioSession.sharedInstance().setActive(false,
-                                                       options: .notifyOthersOnDeactivation)
+        // Switch to playback so WKWebView can play audio after recording ends.
+        // Without this the .record category blocks HTML5 audio output.
+        let audioSession = AVAudioSession.sharedInstance()
+        try? audioSession.setCategory(.playback, mode: .default, options: [])
+        try? audioSession.setActive(true)
 
         let result = savedChunks
         savedChunks = []
@@ -367,8 +372,9 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func rotateChunk() {
-        finaliseCurrentChunk()
+        // Stop BEFORE reading — ensures MOOV atom is written to disk first.
         recorder?.stop()
+        finaliseCurrentChunk()
         chunkIndex += 1
         _ = startNextRecorder()
     }
