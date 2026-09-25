@@ -5,7 +5,8 @@ import { getApiBase, getDirectApiBase } from './config';
 import { getUser } from './auth';
 import type { RecordableKnowledgeSession } from '$lib/recorder/types';
 
-// Lazy import to avoid circular dep (pkceFlow → api → pkceFlow)
+// Lazy imports avoid circular dep (pkceFlow → api → pkceFlow)
+
 async function tryRefresh(): Promise<string | null> {
   try {
     const { silentRefresh } = await import('./pkceFlow');
@@ -13,6 +14,19 @@ async function tryRefresh(): Promise<string | null> {
     return user?.token ?? null;
   } catch {
     return null;
+  }
+}
+
+// Proactively refresh if the token is within 60 s of expiry.
+// Non-fatal — if the refresh fails, the request proceeds with the current token
+// and a 401 will trigger the reactive retry path.
+async function tryEnsureFresh(): Promise<void> {
+  if (!getUser()) return;
+  try {
+    const { ensureFreshToken } = await import('./pkceFlow');
+    await ensureFreshToken();
+  } catch {
+    // non-fatal
   }
 }
 
@@ -32,6 +46,8 @@ export async function request<T>(
   opts: RequestInit = {},
   skipAuth = false
 ): Promise<T> {
+  if (!skipAuth) await tryEnsureFresh();
+
   const user       = getUser();
   const isFormData = opts.body instanceof FormData;
 

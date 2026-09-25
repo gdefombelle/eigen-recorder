@@ -16,7 +16,10 @@
   import { t, langStore } from '$lib/i18n/index';
   import SyncModeToggle from './SyncModeToggle.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
-  import { openLiveRoom, shareLiveRoom } from '$lib/recorder/liveRoom';
+  import { openLiveRoom, openFinalizedSession, shareLiveRoom } from '$lib/recorder/liveRoom';
+  import type { LiveStateResponse } from '$lib/recorder/knowledgeSessionApi';
+  import { keychainErrorStore } from '$lib/auth/pkceFlow';
+  import FinalizedSessionPanel from './FinalizedSessionPanel.svelte';
 
   let { localSessionId }: { localSessionId: string } = $props();
 
@@ -97,6 +100,7 @@
   let liveRoomSharing = $state(false);
   let liveRoomError   = $state('');
   let shareConfirm    = $state('');  // brief "Lien copié" / "Partagé" feedback
+  let liveStateData   = $state<LiveStateResponse | null>(null);
 
   // Show the Live Room row whenever the session is backed by EigenVertex
   // (i.e. knowledge_session_id is set — true from 'ready' state onwards).
@@ -111,7 +115,17 @@
     liveRoomLoading = true;
     liveRoomError   = '';
     try {
-      await openLiveRoom(ksId);
+      if (isStopped) {
+        // Finalized session: never POST /live-share.
+        // Cache hit → opens share URL in browser (same-session case).
+        // No cache → fetches live-state and opens in-app panel.
+        const result = await openFinalizedSession(ksId);
+        if (result.kind === 'live_state') {
+          liveStateData = result.data;
+        }
+      } else {
+        await openLiveRoom(ksId);
+      }
     } catch (e) {
       liveRoomError = e instanceof Error ? e.message : 'Impossible d\'ouvrir la Live Room';
     } finally {
@@ -141,6 +155,22 @@
 </script>
 
 <div class="k7-shell">
+
+  <!-- ── Finalized session overlay ── -->
+  {#if liveStateData}
+    <FinalizedSessionPanel
+      data={liveStateData}
+      title={session?.title}
+      onclose={() => { liveStateData = null; }}
+    />
+  {/if}
+
+  <!-- ── Keychain error banner ── -->
+  {#if $keychainErrorStore}
+    <div class="keychain-error-banner" role="alert">
+      ⚠ {$keychainErrorStore}
+    </div>
+  {/if}
 
   <!-- ── Offline banner ── -->
   {#if !store.isOnline}
@@ -799,6 +829,16 @@
     font-size: 0.78rem;
     color: var(--orange);
     line-height: 1.5;
+  }
+
+  .keychain-error-banner {
+    background: var(--red-dim, #2a0a0a);
+    border-bottom: 1px solid var(--red, #e05555);
+    padding: 8px 16px;
+    font-size: 0.78rem;
+    color: var(--red, #e05555);
+    line-height: 1.5;
+    flex-shrink: 0;
   }
 
 </style>

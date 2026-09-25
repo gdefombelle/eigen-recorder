@@ -17,7 +17,8 @@
 //           unlike navigator.share() in WKWebView which is non-deterministic.
 //           Falls back to Clipboard API on web.
 
-import { createLiveShare } from './knowledgeSessionApi';
+import { createLiveShare, getLiveState } from './knowledgeSessionApi';
+import type { LiveStateResponse } from './knowledgeSessionApi';
 import { isNative } from '$lib/platform';
 
 // ── In-memory cache ────────────────────────────────────────────────────────
@@ -51,17 +52,51 @@ export function clearLiveShareCache(knowledgeSessionId: string): void {
   _shareCache.delete(knowledgeSessionId);
 }
 
+/**
+ * Return the cached Live Room URL without any API call.
+ * Returns null if the URL was never fetched this app session.
+ */
+export function getCachedLiveShareUrl(knowledgeSessionId: string): string | null {
+  return _shareCache.get(knowledgeSessionId)?.share_url ?? null;
+}
+
 // ── Open ───────────────────────────────────────────────────────────────────
 
 /**
- * Open the Live Room for a session in the system browser.
- * Fetches (or returns cached) share_url, then opens it.
- * On iOS Capacitor: uses SFSafariViewController (@capacitor/browser).
- * On web: uses window.open (not window.location.href — blocked in WKWebView).
+ * Open the Live Room for an ACTIVE (recording/paused) session.
+ * Fetches (or returns cached) share_url via POST /live-share, then opens it.
+ * Only call this while the session is active — use openFinalizedSession() after stop.
  */
 export async function openLiveRoom(knowledgeSessionId: string): Promise<void> {
   const url = await getLiveShareUrl(knowledgeSessionId);
   await openLiveRoomUrl(url);
+}
+
+export type FinalizedSessionResult =
+  /** Cache hit from active phase — share URL was opened in the system browser. */
+  | { kind: 'opened_url' }
+  /** No cached URL — live-state data returned for in-app rendering. */
+  | { kind: 'live_state'; data: LiveStateResponse };
+
+/**
+ * Open or display a finalized (stopped/synced) session.
+ * Never calls POST /live-share.
+ *
+ * Two paths:
+ *  1. Cache hit (session was active this app session): opens the cached share URL
+ *     in the system browser and returns { kind: 'opened_url' }.
+ *  2. No cache: fetches GET /live-state (read-only, no side effects) and returns
+ *     { kind: 'live_state', data } for the caller to render in-app.
+ *     The backend returns transcript, summary, participants — no public share URL.
+ */
+export async function openFinalizedSession(knowledgeSessionId: string): Promise<FinalizedSessionResult> {
+  const cached = getCachedLiveShareUrl(knowledgeSessionId);
+  if (cached) {
+    await openLiveRoomUrl(cached);
+    return { kind: 'opened_url' };
+  }
+  const data = await getLiveState(knowledgeSessionId);
+  return { kind: 'live_state', data };
 }
 
 /**

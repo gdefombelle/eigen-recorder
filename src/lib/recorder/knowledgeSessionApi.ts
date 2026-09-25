@@ -336,6 +336,39 @@ export async function revokeLiveShare(sessionId: string): Promise<void> {
   await request(`/knowledge-sessions/${sessionId}/live-share`, { method: 'DELETE' });
 }
 
+// ── GET /v1/knowledge-sessions/{id}/live-state ─────────────────────────────
+//
+// Authenticated read-only route — safe for any session state (recording, stopped,
+// finalized). Returns the current live/finalized view URL for the session.
+// Never calls POST /live-share — no side effects.
+//
+// Use this instead of POST /live-share for stopped or synced sessions.
+
+export interface LiveStateParticipant {
+  display_name: string;
+}
+
+export interface LiveStateResponse {
+  status:        string;
+  title?:        string | null;
+  transcript?:   string | null;
+  summary?:      string | null;
+  action_items?: string[] | null;
+  participants?: LiveStateParticipant[] | null;
+  started_at?:   string | null;
+  ended_at?:     string | null;
+  duration_ms?:  number | null;
+}
+
+/**
+ * Read the finalized state of a session — transcript, summary, participants, etc.
+ * Read-only, no side effects. Safe for any session state (recording, stopped, finalized).
+ * Never returns a public share URL — use GET /live-share route for that (active sessions only).
+ */
+export async function getLiveState(sessionId: string): Promise<LiveStateResponse> {
+  return request<LiveStateResponse>(`/knowledge-sessions/${sessionId}/live-state`);
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 /** Case B/C — create a new KnowledgeSession from the recorder form.

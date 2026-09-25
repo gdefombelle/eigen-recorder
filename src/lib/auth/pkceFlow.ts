@@ -25,12 +25,27 @@
 //   in the backend CORS config. CapacitorHttp (native) bypasses browser CORS;
 //   fetch() (web) does not.
 
+import { writable } from 'svelte/store';
 import { generateCodeVerifier, generateCodeChallenge, generateState } from './pkce';
 import { getDirectApiBase }  from './config';
 import { setUser, clearUser, getUser } from './auth';
 import { secureGet, secureSave, secureRemove } from './secureStorage';
 import { isNative } from '$lib/platform';
 import type { EVUser } from './auth';
+
+// ── Keychain error store ───────────────────────────────────────────────────────
+// Set when both secureSave and secureRemove fail after a rotation.
+// The UI subscribes to show an explicit warning; silent refresh is blocked.
+
+export const keychainErrorStore = writable<string | null>(null);
+let _keychainBroken = false;
+
+/** Reset module-level auth state. Only for unit tests. */
+export function _resetForTests(): void {
+  _keychainBroken = false;
+  keychainErrorStore.set(null);
+  _refreshPromise = null;
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -55,24 +70,17 @@ interface TokenResponse {
 // ── Build EVUser from token response ─────────────────────────────────────────
 
 function buildUser(res: TokenResponse): EVUser {
-  // Decode JWT payload for email / name (access_token is a JWT)
-  let email = '';
-  let name: string | undefined;
-  let expiresAt = Date.now() + (res.expires_in ?? 3600) * 1000;
-  try {
-    const [, payload] = res.access_token.split('.');
-    const claims = JSON.parse(atob(payload!.replace(/-/g, '+').replace(/_/g, '/')));
-    email     = String(claims['email'] ?? claims['sub'] ?? '');
-    name      = typeof claims['name'] === 'string' ? claims['name'] : undefined;
-    if (typeof claims['exp'] === 'number') expiresAt = claims['exp'] * 1000;
-  } catch { /* keep defaults */ }
+  // access_token is opaque (evtxa_…) — never try to decode as JWT.
+  // expiresAt comes from server-provided expires_in (authoritative).
+  // email/name are carried forward from the existing user (token rotation doesn't
+  // change the identity) or fetched from /auth/me after a fresh login.
   return {
-    token:             res.access_token,
-    email,
-    name,
-    expiresAt,
-    refreshToken:      res.refresh_token,
-    rotationFamilyId:  res.rotation_family_id,
+    token:            res.access_token,
+    email:            '',
+    name:             undefined,
+    expiresAt:        Date.now() + (res.expires_in ?? 3600) * 1000,
+    refreshToken:     res.refresh_token,
+    rotationFamilyId: res.rotation_family_id,
   };
 }
 
@@ -175,9 +183,22 @@ async function exchangeCode(
   return user;
 }
 
-// ── Silent refresh ────────────────────────────────────────────────────────────
+// ── Single-flight refresh guard ───────────────────────────────────────────────
+// All concurrent refresh callers share one Promise — the same evtxr_… token
+// must never be replayed, as replaying a consumed token can revoke the entire
+// rotation family.
 
-export async function silentRefresh(): Promise<EVUser | null> {
+let _refreshPromise: Promise<EVUser | null> | null = null;
+
+export function silentRefresh(): Promise<EVUser | null> {
+  // Keychain is irrecoverable — don't attempt network refresh (would replay consumed token).
+  if (_keychainBroken) return Promise.resolve(null);
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = _doSilentRefresh().finally(() => { _refreshPromise = null; });
+  return _refreshPromise;
+}
+
+async function _doSilentRefresh(): Promise<EVUser | null> {
   const refreshToken = await secureGet(STORAGE_KEY_REFRESH);
   if (!refreshToken) return null;
   try {
@@ -191,11 +212,54 @@ export async function silentRefresh(): Promise<EVUser | null> {
     const tokens = isNative()
       ? await nativePost<TokenResponse>('/auth/token', payload)
       : await webPost<TokenResponse>('/auth/token', payload);
-    const user = buildUser(tokens);
+
+    // Carry forward identity from the current session — token rotation doesn't
+    // change the user, and opaque tokens don't embed email/name.
+    const base     = buildUser(tokens);
+    const existing = getUser();
+    const user: EVUser = {
+      ...base,
+      email: base.email || existing?.email || '',
+      name:  base.name ?? existing?.name,
+    };
     setUser(user);
-    await secureSave(STORAGE_KEY_REFRESH, tokens.refresh_token);
+
+    // Save the new refresh token.
+    // The old token was consumed by the rotation exchange — it must NOT survive
+    // in Keychain or it will be replayed on the next refresh attempt, triggering
+    // a family revocation. Two-stage safety: try save → if that fails, remove old.
+    try {
+      await secureSave(STORAGE_KEY_REFRESH, tokens.refresh_token);
+    } catch (saveErr) {
+      console.warn(
+        '[PKCE] Keychain write failed — attempting to remove consumed token.',
+        saveErr instanceof Error ? saveErr.message : String(saveErr),
+      );
+      try {
+        await secureRemove(STORAGE_KEY_REFRESH);
+        console.warn('[PKCE] Consumed refresh token removed. Re-login required after access token expires (~15 min).');
+      } catch (removeErr) {
+        // CRITICAL: Cannot save the new token AND cannot remove the consumed one.
+        // The next silentRefresh() call would replay the stale Keychain entry and
+        // potentially revoke the entire rotation family. Block all future silent
+        // refreshes and surface the error to the UI.
+        _keychainBroken = true;
+        keychainErrorStore.set(
+          'Keychain inaccessible — reconnexion requise. Vos enregistrements locaux sont préservés.',
+        );
+        console.error(
+          '[PKCE] Keychain save AND removal both failed — silent refresh disabled to prevent family revocation.',
+          'save:', saveErr instanceof Error ? saveErr.message : String(saveErr),
+          'remove:', removeErr instanceof Error ? removeErr.message : String(removeErr),
+        );
+        // Don't throw: return the fresh access token (~15 min) so the current
+        // operation succeeds. The UI banner tells the user to re-login.
+      }
+    }
     if (tokens.rotation_family_id) {
-      await secureSave(STORAGE_KEY_FAMILY, tokens.rotation_family_id);
+      await secureSave(STORAGE_KEY_FAMILY, tokens.rotation_family_id).catch((e: unknown) => {
+        console.warn('[PKCE] Failed to save rotation_family_id (non-fatal):', e instanceof Error ? e.message : String(e));
+      });
     }
     return user;
   } catch (e: unknown) {
@@ -217,6 +281,8 @@ export async function ensureFreshToken(): Promise<EVUser | null> {
 // ── Logout ────────────────────────────────────────────────────────────────────
 
 export async function pkceLogout(): Promise<void> {
+  _keychainBroken = false;
+  keychainErrorStore.set(null);
   const familyId = await secureGet(STORAGE_KEY_FAMILY);
   // Best-effort revoke — do not block logout on network errors
   if (familyId) {

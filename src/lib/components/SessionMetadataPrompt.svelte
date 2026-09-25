@@ -408,28 +408,34 @@
     geoLoading = false;
   }
 
-  // ── Quick Record — no metadata, starts immediately (Notes profile) ──────────
+  // ── Quick Record — starts immediately with Notes profile.
+  // Uses all form state already filled in (title, subject, project, etc.) so
+  // nothing the user typed is silently discarded.
   function quickRecord() {
     const now  = new Date();
     const time = now.toLocaleTimeString($langStore === 'fr' ? 'fr-FR' : 'en-US', { hour: '2-digit', minute: '2-digit' });
     onsubmit?.({
-      title:                `Note ${time}`,
+      title:                title.trim() || `Note ${time}`,
       session_type:         'voice_note',
       capture_profile_id:   'notes',
-      subject:              '',
-      agenda:               '',
-      participants:         [],
+      subject:              subject.trim(),
+      agenda:               agenda.trim(),
+      participants:         participantsRaw.split('\n').map(p => p.trim()).filter(Boolean),
       location_label:       location_label.trim() || null,
       geo_lat:              geoFromDevice ? geoLat : null,
       geo_lng:              geoFromDevice ? geoLng : null,
-      project_id:           null,
-      workspace_id:         null,
-      target_corpus_id:     null,
+      project_id:           selectedProjectId,
+      workspace_id:         selectedWorkspaceId,
+      target_corpus_id:     selectedTargetCorpusId,
       thread_id:            selectedThreadId,
-      knowledge_intent:     'personal_note',
-      target_type:          'inbox',
-      audio_source:         'microphone_only',
-      remote_participants:  null,
+      knowledge_intent:     selectedTargetCorpusId ? 'operate_project'
+                              : selectedProjectId  ? 'operate_project'
+                              : 'personal_note',
+      target_type:          selectedTargetCorpusId ? 'corpus'
+                              : selectedProjectId  ? 'project'
+                              : 'inbox',
+      audio_source:         audioSource,
+      remote_participants:  remoteParticipants,
       knowledge_session_id: null,
       recorder_surface:     'record_now',
     });
