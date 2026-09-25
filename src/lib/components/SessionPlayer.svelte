@@ -68,6 +68,11 @@
   onMount(async () => {
     try {
       await buildTracks();
+      // Eagerly load all tracks BEFORE showing the play button.
+      // On iOS, el.play() must be called synchronously within a user gesture handler.
+      // Any await between the click and el.play() causes NotAllowedError (silently
+      // swallowed). Pre-loading here means play() never needs to await.
+      await ensureAllLoaded();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Impossible de charger l\'audio';
     }
@@ -241,9 +246,12 @@
 
   // ── Playback ─────────────────────────────────────────────────────────────────
 
-  async function play() {
+  // play() is intentionally NOT async — on iOS, el.play() must be called
+  // synchronously within the user gesture event handler. Any await between
+  // the click and el.play() causes NotAllowedError. Tracks are pre-loaded
+  // in onMount so no loading is needed here.
+  function play() {
     if (isPlaying) return;
-    await ensureAllLoaded();
 
     masterStart_wallclock = Date.now();
     masterStart_elapsed   = elapsed_ms;
@@ -251,27 +259,27 @@
     for (let ti = 0; ti < tracks.length; ti++) {
       const track = tracks[ti];
       const el    = audioRefs[ti];
-      if (!el || track.loadError) continue;
+      if (!el || track.loadError || !track.loaded) continue;
 
       el.muted = track.muted;
 
-      // Time within this track's audio corresponding to the current global elapsed
       const trackLocalTime_ms = elapsed_ms - track.trackOffset_ms;
 
       if (trackLocalTime_ms < 0) {
-        // Track hasn't started yet in the global timeline — schedule delayed start
         el.currentTime = 0;
         el.pause();
         const delay = -trackLocalTime_ms;
         setTimeout(() => {
-          if (isPlaying) el.play().catch(() => {});
+          if (isPlaying) el.play().catch((err) => {
+            tracks[ti].loadError = `${(err as Error).name}: ${(err as Error).message}`;
+          });
         }, delay);
       } else if (trackLocalTime_ms <= track.trackDuration_ms) {
-        // Seek to correct position and play
         el.currentTime = trackLocalTime_ms / 1000;
-        el.play().catch(() => {});
+        el.play().catch((err) => {
+          tracks[ti].loadError = `${(err as Error).name}: ${(err as Error).message}`;
+        });
       }
-      // else: track is already done for this elapsed position, leave paused
     }
 
     isPlaying = true;

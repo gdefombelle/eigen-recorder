@@ -30,6 +30,7 @@
 
   // Track which card has the action menu open
   let openMenu: string | null = $state(null);
+  let menuPos = $state<{ top: number; right: number }>({ top: 0, right: 0 });
 
   // Grouped sessions: sessions sharing the same knowledge_session_id → played together
   let sessionGroups = $derived((() => {
@@ -70,7 +71,16 @@
   // ── Action menu ──────────────────────────────────────────────
   function openActionMenu(id: string, e: MouseEvent) {
     e.stopPropagation();
-    openMenu = openMenu === id ? null : id;
+    if (openMenu === id) { openMenu = null; return; }
+    // Compute viewport-relative position so the menu can use position:fixed
+    // and escape the overflow-x:hidden on <main> that clips absolute children.
+    const btn  = e.currentTarget as HTMLElement;
+    const rect = btn.getBoundingClientRect();
+    menuPos = {
+      top:   rect.bottom + 4,
+      right: window.innerWidth - rect.right,
+    };
+    openMenu = id;
   }
 
   // Action 1 — purge audio blobs only (D-02)
@@ -319,7 +329,9 @@
 
                 {#if openMenu === session.local_session_id}
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <div class="action-menu animate-fade-in" role="menu" onclick={(e) => e.stopPropagation()}>
+                  <div class="action-menu animate-fade-in" role="menu"
+                    style="top:{menuPos.top}px;right:{menuPos.right}px"
+                    onclick={(e) => e.stopPropagation()}>
                     {#if session.knowledge_session_id}
                       <button
                         class="menu-item menu-item-live-room"
@@ -530,14 +542,14 @@
     flex-shrink: 0;
   }
   .action-menu {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 4px);
+    position: fixed;
+    /* top/right set via inline style from getBoundingClientRect() —
+       escapes the overflow-x:hidden on <main> that clips abs children */
     background: var(--ev-surface, #1a1a2e);
     border: 1px solid var(--ev-border);
     border-radius: var(--radius-md);
     overflow: hidden;
-    z-index: 200;
+    z-index: 500;
     min-width: 180px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.55);
   }
