@@ -247,7 +247,7 @@
           <!-- Title -->
           <div class="card-title">{session.title}</div>
 
-          <!-- Meta row: date · duration · chunks · size -->
+          <!-- Meta row: date · duration · chunks · size · location -->
           <div class="card-meta">
             <span>{formatDate(session.created_at)}</span>
             {#if session.duration_ms > 0}
@@ -259,6 +259,15 @@
               <span>{stats.chunkCount} chunk{stats.chunkCount > 1 ? 's' : ''}</span>
               <span class="sep">·</span>
               <span>{formatBytes(stats.totalBytes)}</span>
+            {/if}
+            {#if session.location_label}
+              <span class="sep">·</span>
+              <span class="meta-location">
+                <svg width="9" height="9" viewBox="0 0 10 13" fill="currentColor" style="opacity:0.6;flex-shrink:0">
+                  <path d="M5 0C2.24 0 0 2.24 0 5c0 3.75 5 8 5 8s5-4.25 5-8c0-2.76-2.24-5-5-5zm0 6.5A1.5 1.5 0 1 1 5 3.5a1.5 1.5 0 0 1 0 3z"/>
+                </svg>
+                {session.location_label}
+              </span>
             {/if}
           </div>
 
@@ -470,6 +479,16 @@
   }
   .sep { color: rgba(255,255,255,0.2); }
 
+  .meta-location {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* ── Actions ── */
   .card-actions {
     display: flex;
@@ -513,7 +532,7 @@
   .action-menu {
     position: absolute;
     right: 0;
-    bottom: calc(100% + 4px);
+    top: calc(100% + 4px);
     background: var(--ev-surface, #1a1a2e);
     border: 1px solid var(--ev-border);
     border-radius: var(--radius-md);

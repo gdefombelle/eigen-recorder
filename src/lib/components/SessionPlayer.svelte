@@ -20,6 +20,8 @@
   import { offlineStorage } from '$lib/recorder/offlineStorage';
   import type { LocalKnowledgeSession, AudioChunkMetadata } from '$lib/recorder/types';
   import { formatDuration } from '$lib/recorder/utils';
+  import { isNative } from '$lib/platform';
+  import { EigenAudio } from '$lib/plugins/eigenAudio';
 
   let { sessions }: { sessions: LocalKnowledgeSession[] } = $props();
 
@@ -150,31 +152,50 @@
     const el    = audioRefs[ti];
     if (!el || track.loaded) return;
 
-    const mime = track.series[0]?.chunks[0]?.mime_type ?? 'audio/webm;codecs=opus';
+    const mime      = track.series[0]?.chunks[0]?.mime_type ?? 'audio/webm;codecs=opus';
+    const allChunks = track.series.flatMap(s => s.chunks);
 
-    // Collect all chunk blobs upfront (shared by both paths below)
-    const blobs: Blob[] = [];
-    for (const series of track.series) {
-      for (const chunk of series.chunks) {
+    // Native iOS recordings are regular (non-fragmented) M4A — SourceBuffer requires
+    // fragmented MP4, so they cannot go through MediaSource regardless of what
+    // isTypeSupported() returns. Only webm/opus from the browser MediaRecorder is
+    // already fragmented and safe to feed into SourceBuffer.
+    if (!mime.includes('webm')) {
+      // Multi-chunk native sessions: merge on-device via AVAssetExportSession (files
+      // are kept in Documents/EigenChunks/<sessionId>/ after recording).
+      if (isNative() && allChunks.length > 1) {
+        const sessionId = track.series[0]?.session.local_session_id;
+        if (sessionId) {
+          try {
+            const result = await EigenAudio.mergeChunks({ sessionId });
+            const bytes  = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
+            el.src = URL.createObjectURL(new Blob([bytes], { type: result.mimeType }));
+            tracks[ti].loaded = true;
+            return;
+          } catch { /* fall through to blob concat */ }
+        }
+      }
+
+      // Single chunk or fallback: direct blob URL (iOS plays M4A natively)
+      const blobs: Blob[] = [];
+      for (const chunk of allChunks) {
         const blob = await offlineStorage.getChunkBlob(chunk.local_chunk_id);
         if (blob) blobs.push(blob);
       }
-    }
-
-    if (blobs.length === 0) {
-      tracks[ti].loadError = 'Audio non disponible (purgé)';
-      return;
-    }
-
-    // audio/x-caf and other native formats are not supported by MediaSource on
-    // WebKit, but play fine via a direct blob URL (iOS handles CAF natively).
-    if (!MediaSource.isTypeSupported(mime)) {
+      if (blobs.length === 0) {
+        tracks[ti].loadError = 'Audio non disponible (purgé)';
+        return;
+      }
       el.src = URL.createObjectURL(new Blob(blobs, { type: mime }));
       tracks[ti].loaded = true;
       return;
     }
 
-    // MediaSource path — enables codec-aware concatenation for webm/opus
+    // WebM/Opus (browser MediaRecorder) — already fragmented, use MediaSource
+    if (!MediaSource.isTypeSupported(mime)) {
+      tracks[ti].loadError = `Format non supporté: ${mime}`;
+      return;
+    }
+
     const ms = new MediaSource();
     tracks[ti].ms = ms;
     el.src = URL.createObjectURL(ms);
@@ -191,9 +212,13 @@
               sb.appendBuffer(buf);
             });
 
-          for (const blob of blobs) {
-            const ab = await blob.arrayBuffer();
-            await appendBuffer(ab);
+          for (const series of track.series) {
+            for (const chunk of series.chunks) {
+              const blob = await offlineStorage.getChunkBlob(chunk.local_chunk_id);
+              if (!blob) continue;
+              const ab = await blob.arrayBuffer();
+              await appendBuffer(ab);
+            }
           }
 
           ms.endOfStream();
