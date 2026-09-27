@@ -28,7 +28,7 @@ vi.mock('./auth', () => ({
 }));
 
 import { secureGet, secureSave, secureRemove } from './secureStorage';
-import { getUser, setUser } from './auth';
+import { getUser, setUser, clearUser } from './auth';
 import { silentRefresh, ensureFreshToken, keychainErrorStore, _resetForTests } from './pkceFlow';
 import type { EVUser } from './auth';
 
@@ -37,6 +37,7 @@ const mockSecureSave   = secureSave   as ReturnType<typeof vi.fn>;
 const mockSecureRemove = secureRemove as ReturnType<typeof vi.fn>;
 const mockGetUser      = getUser      as ReturnType<typeof vi.fn>;
 const mockSetUser      = setUser      as ReturnType<typeof vi.fn>;
+const mockClearUser    = clearUser    as ReturnType<typeof vi.fn>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -214,7 +216,11 @@ describe('silentRefresh — identity preservation', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('logs out and returns null on 401 refresh response', async () => {
+  // Regression guard: webPost/nativePost used to throw a bare Error with no
+  // `status`, so the `status === 401` branch never fired and a revoked refresh
+  // token left a zombie session — signed-in UI, every request 401ing, no way
+  // back to the login screen. These tests assert the session is actually cleared.
+  it('clears the session on a 401 refresh response', async () => {
     mockSecureGet.mockResolvedValue('evtxr_revoked');
     mockSecureRemove.mockResolvedValue(undefined);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -224,7 +230,65 @@ describe('silentRefresh — identity preservation', () => {
     }));
 
     const user = await silentRefresh();
+
     expect(user).toBeNull();
+    // The refresh token must be wiped, not left to be replayed forever.
+    expect(mockSecureRemove).toHaveBeenCalled();
+    expect(getUser()).toBeNull();
+  });
+
+  it('clears the session on a 403 refresh response', async () => {
+    mockSecureGet.mockResolvedValue('evtxr_revoked');
+    mockSecureRemove.mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ detail: 'family revoked' }),
+    }));
+
+    await silentRefresh();
+
+    expect(mockSecureRemove).toHaveBeenCalled();
+    expect(getUser()).toBeNull();
+  });
+
+  it('KEEPS the session when the refresh fails from a network error', async () => {
+    const existing: EVUser = {
+      email: 'u@t.com', name: undefined,
+      token: 'evtxa_stale',
+      expiresAt: Date.now() - 1000,
+      refreshToken: 'evtxr_valid',
+    };
+    setUser(existing);
+    mockSecureGet.mockResolvedValue('evtxr_valid');
+    mockSecureRemove.mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    const user = await silentRefresh();
+
+    expect(user).toBeNull();
+    // Offline is transient — a flaky network must never destroy a good session.
+    expect(mockSecureRemove).not.toHaveBeenCalled();
+    expect(getUser()).not.toBeNull();
+  });
+
+  it('KEEPS the session when the refresh fails with a 5xx', async () => {
+    setUser({
+      email: 'u@t.com', name: undefined,
+      token: 'evtxa_stale', expiresAt: Date.now() - 1000, refreshToken: 'evtxr_valid',
+    });
+    mockSecureGet.mockResolvedValue('evtxr_valid');
+    mockSecureRemove.mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({ detail: 'upstream down' }),
+    }));
+
+    await silentRefresh();
+
+    expect(mockSecureRemove).not.toHaveBeenCalled();
+    expect(getUser()).not.toBeNull();
   });
 });
 
@@ -276,5 +340,93 @@ describe('ensureFreshToken — proactive refresh', () => {
     const result = await ensureFreshToken();
 
     expect(result?.token).toBe('evtxa_new');
+  });
+});
+
+// ── Regression: a stalled /auth/token call must not hang forever ────────────
+//
+// webPost()/nativePost() had no timeout at all. On native, CapacitorHttp
+// defaults to a 600_000ms (10 MINUTE) timeout when none is passed. Because
+// every request() call in api.ts awaits ensureFreshToken() BEFORE its own
+// (separately timed-out) transport call, a stalled refresh blocked ALL data
+// loading upstream of it — this was the actual cause of the "stuck forever"
+// session-content spinner and the Chat tab never appearing (gated on
+// `minutes`, which never arrived), not a hang in the data call itself.
+
+describe('silentRefresh — stalled token endpoint', () => {
+  it('does not hang for anywhere near 10 minutes when fetch never settles', async () => {
+    vi.useFakeTimers();
+    mockSecureGet.mockResolvedValue('evtxr_valid');
+
+    // Never resolves on its own, but honors AbortSignal like real fetch does —
+    // this exercises OUR timeout, not the browser's abort plumbing.
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    })));
+
+    const pending = silentRefresh();
+    const assertion = expect(pending).resolves.toBeNull();
+
+    // Our timeout (20s) must fire well before CapacitorHttp's 10-minute default.
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    await assertion;
+  });
+
+  it('keeps the session after a stalled refresh — a timeout is transient, not a revocation', async () => {
+    vi.useFakeTimers();
+    const existing: EVUser = {
+      email: 'u@t.com', name: undefined,
+      token: 'evtxa_stale', expiresAt: Date.now() - 1000, refreshToken: 'evtxr_valid',
+    };
+    setUser(existing);
+    mockSecureGet.mockResolvedValue('evtxr_valid');
+    mockSecureRemove.mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    })));
+
+    const pending = silentRefresh();
+    await vi.advanceTimersByTimeAsync(20_000);
+    const result = await pending;
+
+    // Assert on the mocks directly rather than round-tripping through the
+    // shared `getUser()`/`setUser()` closure: under fake timers, reading
+    // mutable cross-test state that way is exactly the kind of thing that
+    // produces flaky order-dependent failures. clearUser() is the one
+    // operation that would actually end the session — its call count is the
+    // unambiguous signal.
+    expect(result).toBeNull();
+    expect(mockSecureRemove).not.toHaveBeenCalled();
+    expect(mockClearUser).not.toHaveBeenCalled();
+  });
+
+  // The severe one: silentRefresh() caches _refreshPromise and only clears it
+  // in .finally(). If an attempt never settles, that never runs and EVERY later
+  // call returns the same dead promise — auth deadlocks for the whole app
+  // session. That is why the spinner never recovered on its own and only a full
+  // re-login cleared it. A later attempt must always be able to succeed.
+  it('recovers on the next attempt — a stalled Keychain WRITE must not deadlock the guard', async () => {
+    vi.useFakeTimers();
+    mockSecureGet.mockResolvedValue('evtxr_valid');
+
+    // The token call succeeds, then the Keychain WRITE never settles. This is
+    // the one step with no timeout of its own, so only the outer budget can
+    // rescue it — exactly what this test exists to prove.
+    vi.stubGlobal('fetch', makeFetchOk(makeTokenBody('evtxa_ok')));
+    mockSecureSave.mockImplementation(() => new Promise(() => {}));
+
+    const first = silentRefresh();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await first).toBeNull();
+
+    // Attempt 2 must run a FRESH request, not hand back the dead promise.
+    vi.useRealTimers();
+    mockSecureSave.mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', makeFetchOk(makeTokenBody('evtxa_recovered')));
+
+    const second = await silentRefresh();
+
+    expect(second?.token).toBe('evtxa_recovered');
   });
 });

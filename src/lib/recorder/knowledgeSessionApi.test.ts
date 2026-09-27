@@ -22,7 +22,13 @@ vi.mock('$lib/platform', () => ({ isNative: () => false }));
 vi.mock('./audioRecorder', () => ({ getSupportedMimeType: () => 'audio/webm' }));
 
 import { request } from '$lib/auth/api';
-import { startNowKnowledgeSession } from './knowledgeSessionApi';
+import {
+  startNowKnowledgeSession,
+  getKnowledgeSessionMinutes,
+  updateKnowledgeSessionMinutes,
+  listKnowledgeSessionArtifacts,
+  createKnowledgeSessionArtifact,
+} from './knowledgeSessionApi';
 
 const mockRequest = request as ReturnType<typeof vi.fn>;
 
@@ -87,5 +93,127 @@ describe('startNowKnowledgeSession — response normalisation', () => {
     expect(result.id).not.toBe('undefined');
     expect(typeof result.id).toBe('string');
     expect(result.id.length).toBeGreaterThan(0);
+  });
+});
+
+// ── Post-session artifacts ────────────────────────────────────────────────────
+
+describe('getKnowledgeSessionMinutes', () => {
+  it('calls GET /knowledge-sessions/{id}/minutes/document with auth', async () => {
+    const minutes = {
+      id: 'min-001', session_id: 'sess-abc',
+      content_json: { executive_summary: 'Q3 sprint done.', action_items: [{ action: 'Fix login bug' }] },
+      status: 'draft', revision: 1, updated_at: '2026-09-26T10:00:00Z',
+    };
+    mockRequest.mockResolvedValueOnce(minutes);
+
+    const result = await getKnowledgeSessionMinutes('sess-abc');
+
+    expect(mockRequest).toHaveBeenCalledWith('/knowledge-sessions/sess-abc/minutes/document');
+    expect(result.id).toBe('min-001');
+    expect(result.status).toBe('draft');
+    expect(result.revision).toBe(1);
+  });
+
+  it('propagates ApiError when backend returns 404', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('Not Found'));
+
+    await expect(getKnowledgeSessionMinutes('no-such-session')).rejects.toThrow('Not Found');
+  });
+});
+
+describe('listKnowledgeSessionArtifacts', () => {
+  it('calls GET /knowledge-sessions/{id}/artifacts?scope=session', async () => {
+    mockRequest.mockResolvedValueOnce([]);
+
+    await listKnowledgeSessionArtifacts('sess-abc');
+
+    expect(mockRequest).toHaveBeenCalledWith('/knowledge-sessions/sess-abc/artifacts?scope=session');
+  });
+
+  it('returns an empty array when no artifacts exist', async () => {
+    mockRequest.mockResolvedValueOnce([]);
+
+    const result = await listKnowledgeSessionArtifacts('sess-abc');
+
+    expect(result).toEqual([]);
+  });
+
+  it('returns existing artifacts with correct shape', async () => {
+    const artifact = {
+      artifact_id: 'art-001', kind: 'mind_map', scope: 'session',
+      title: 'Sprint mind map', body_markdown: '```evtx-mindmap\n{}\n```',
+      source_session_ids: ['sess-abc'], citations: [], diagnostics: {},
+      created_at: '2026-09-26T10:00:00Z',
+    };
+    mockRequest.mockResolvedValueOnce([artifact]);
+
+    const result = await listKnowledgeSessionArtifacts('sess-abc');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].kind).toBe('mind_map');
+    expect(result[0].artifact_id).toBe('art-001');
+  });
+});
+
+describe('updateKnowledgeSessionMinutes', () => {
+  it('calls PUT /knowledge-sessions/{id}/minutes/document with content_json', async () => {
+    const updated = {
+      id: 'min-001', session_id: 'sess-abc',
+      content_json: { executive_summary: 'Updated summary.' },
+      status: 'draft', revision: 2, updated_at: '2026-09-26T11:00:00Z',
+    };
+    mockRequest.mockResolvedValueOnce(updated);
+
+    const result = await updateKnowledgeSessionMinutes('sess-abc', {
+      content_json: { executive_summary: 'Updated summary.' },
+    });
+
+    expect(mockRequest).toHaveBeenCalledWith(
+      '/knowledge-sessions/sess-abc/minutes/document',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ content_json: { executive_summary: 'Updated summary.' } }),
+      }),
+    );
+    expect(result.revision).toBe(2);
+  });
+});
+
+describe('createKnowledgeSessionArtifact', () => {
+  it('calls POST /knowledge-sessions/{id}/artifacts with correct body', async () => {
+    const artifact = {
+      artifact_id: 'art-002', kind: 'mind_map', scope: 'session',
+      title: 'Generated mind map', body_markdown: '',
+      source_session_ids: ['sess-abc'], citations: [], diagnostics: {},
+      created_at: '2026-09-26T10:00:00Z',
+    };
+    mockRequest.mockResolvedValueOnce(artifact);
+
+    const result = await createKnowledgeSessionArtifact('sess-abc', 'mind_map', 'fr');
+
+    expect(mockRequest).toHaveBeenCalledWith(
+      '/knowledge-sessions/sess-abc/artifacts',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ kind: 'mind_map', scope: 'session', preferred_language: 'fr' }),
+      }),
+    );
+    expect(result.kind).toBe('mind_map');
+    expect(result.artifact_id).toBe('art-002');
+  });
+
+  it('defaults preferred_language to fr', async () => {
+    mockRequest.mockResolvedValueOnce({
+      artifact_id: 'art-003', kind: 'mind_map', scope: 'session',
+      title: 'Map', body_markdown: '', source_session_ids: [],
+      citations: [], diagnostics: {}, created_at: '',
+    });
+
+    await createKnowledgeSessionArtifact('sess-abc', 'mind_map');
+
+    const body = JSON.parse(mockRequest.mock.calls[0][1].body);
+    expect(body.preferred_language).toBe('fr');
+    expect(body.scope).toBe('session');
   });
 });

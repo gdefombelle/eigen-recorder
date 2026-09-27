@@ -44,6 +44,31 @@ export interface EigenAudioPlugin {
     sizeBytes: number;
     path: string;
   }>;
+
+  // ── Dictation (SFSpeechRecognizer) ──────────────────────────────────────
+  // Runs through the native plugin, so it reuses the microphone permission the
+  // app already holds. Only speech recognition needs its own authorization.
+  dictationPermission(): Promise<{
+    granted:    boolean;
+    speech:     'granted' | 'denied' | 'restricted' | 'prompt';
+    microphone: 'granted' | 'denied';
+  }>;
+  startDictation(options: { locale: string }): Promise<{ started: boolean }>;
+  stopDictation(): Promise<{ text: string }>;
+  cancelDictation(): Promise<void>;
+
+  addListener(
+    event: 'dictationResult',
+    cb: (data: { text: string; isFinal: boolean }) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+  addListener(
+    event: 'dictationLevel',
+    cb: (data: { level: number }) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+  addListener(
+    event: 'dictationError',
+    cb: (data: { kind: string; message: string }) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
 }
 
 export const EigenAudio = registerPlugin<EigenAudioPlugin>('EigenAudioPlugin');

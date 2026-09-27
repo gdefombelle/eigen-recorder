@@ -348,16 +348,34 @@ export interface LiveStateParticipant {
   display_name: string;
 }
 
+/** One segment of the session transcript as returned by GET /live-state. */
+export interface TranscriptSegment {
+  speaker_name?: string | null;
+  text: string;
+  start_ms?: number | null;
+  end_ms?: number | null;
+}
+
+/** One action item from the session, as returned by GET /live-state. */
+export interface SessionAction {
+  text?: string | null;
+  owner?: string | null;
+  due_date?: string | null;
+  [key: string]: unknown;
+}
+
 export interface LiveStateResponse {
-  status:        string;
-  title?:        string | null;
-  transcript?:   string | null;
-  summary?:      string | null;
-  action_items?: string[] | null;
-  participants?: LiveStateParticipant[] | null;
-  started_at?:   string | null;
-  ended_at?:     string | null;
-  duration_ms?:  number | null;
+  status:               string;
+  /** Studio Live Room URL — open this directly for "Open Live Room" on a finalized session. */
+  view_url?:            string | null;
+  title?:               string | null;
+  summary_text?:        string | null;
+  transcript_segments?: TranscriptSegment[] | null;
+  actions?:             SessionAction[] | null;
+  participants?:        LiveStateParticipant[] | null;
+  started_at?:          string | null;
+  ended_at?:            string | null;
+  duration_ms?:         number | null;
 }
 
 /**
@@ -367,6 +385,103 @@ export interface LiveStateResponse {
  */
 export async function getLiveState(sessionId: string): Promise<LiveStateResponse> {
   return request<LiveStateResponse>(`/knowledge-sessions/${sessionId}/live-state`);
+}
+
+// ── Post-session artifacts ────────────────────────────────────────────────
+
+export interface KnowledgeSessionMinutes {
+  id: string;
+  session_id: string;
+  content_json: Record<string, unknown>;
+  status: 'draft' | 'in_review' | 'approved';
+  revision: number;
+  generated_at?: string | null;
+  updated_at: string;
+}
+
+export interface KnowledgeSessionArtifact {
+  artifact_id: string;
+  kind: 'mind_map' | 'questions' | 'agreements' | 'decisions' | 'timeline';
+  scope: 'session' | 'thread';
+  title: string;
+  body_markdown: string;
+  source_session_ids: string[];
+  citations: Array<{ citation_id: string; excerpt?: string | null; start_ms?: number | null }>;
+  diagnostics: Record<string, unknown>;
+  created_at: string;
+}
+
+/** Read the canonical, editable meeting report for a finalized session. */
+export async function getKnowledgeSessionMinutes(sessionId: string): Promise<KnowledgeSessionMinutes> {
+  return request<KnowledgeSessionMinutes>(`/knowledge-sessions/${sessionId}/minutes/document`);
+}
+
+/** List persisted session-scoped generated outputs (never Thread-wide outputs). */
+export async function listKnowledgeSessionArtifacts(sessionId: string): Promise<KnowledgeSessionArtifact[]> {
+  return request<KnowledgeSessionArtifact[]>(`/knowledge-sessions/${sessionId}/artifacts?scope=session`);
+}
+
+/** Generate a session-scoped artifact. The backend persists it with source citations. */
+export async function createKnowledgeSessionArtifact(
+  sessionId: string,
+  kind: KnowledgeSessionArtifact['kind'],
+  preferredLanguage = 'fr',
+): Promise<KnowledgeSessionArtifact> {
+  return request<KnowledgeSessionArtifact>(`/knowledge-sessions/${sessionId}/artifacts`, {
+    method: 'POST',
+    body: JSON.stringify({ kind, scope: 'session', preferred_language: preferredLanguage }),
+  });
+}
+
+/** Persist an edited meeting report. PUT replaces `content_json` server-side. */
+export async function updateKnowledgeSessionMinutes(
+  sessionId: string,
+  patch: { content_json: Record<string, unknown> },
+): Promise<KnowledgeSessionMinutes> {
+  return request<KnowledgeSessionMinutes>(`/knowledge-sessions/${sessionId}/minutes/document`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+}
+
+// ── Session-scoped chat ───────────────────────────────────────────────────────
+//
+// POST /v1/knowledge-sessions/{id}/chat
+// Grounded query over this session only (never Thread).
+export interface SessionChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface SessionChatCitation {
+  segment_id: string;
+  speaker_label: string | null;
+  speaker_name: string | null;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+}
+
+export interface SessionChatResponse {
+  session_id: string;
+  scope: 'session';
+  answer: string;
+  citations: SessionChatCitation[];
+  limitations: string[];
+  conversation_id: string | null;
+  conversation_title: string | null;
+}
+
+/** Send a session-scoped question with recent turns for follow-up context. */
+export async function sendSessionChatMessage(
+  sessionId: string,
+  question: string,
+  history: SessionChatTurn[] = [],
+): Promise<SessionChatResponse> {
+  return request<SessionChatResponse>(`/knowledge-sessions/${sessionId}/chat`, {
+    method: 'POST',
+    body: JSON.stringify({ question, history }),
+  });
 }
 
 // ── API calls ──────────────────────────────────────────────────────────────

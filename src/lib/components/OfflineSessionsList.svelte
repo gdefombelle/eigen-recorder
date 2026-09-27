@@ -7,7 +7,8 @@
   import { formatDuration, formatBytes, formatDate } from '$lib/recorder/utils';
   import ShareAudioButton from './ShareAudioButton.svelte';
   import SessionPlayer from './SessionPlayer.svelte';
-  import { openLiveRoom } from '$lib/recorder/liveRoom';
+  import { openFinalizedSession, openLiveRoom } from '$lib/recorder/liveRoom';
+  import PostSessionArtifactsPanel from './PostSessionArtifactsPanel.svelte';
 
   let {
     compact  = false,
@@ -24,6 +25,7 @@
   let selectMode  = $state(false);
   let selected    = $state<Set<string>>(new Set());
   let deleting    = $state(false);
+  let artifactsSession: LocalKnowledgeSession | null = $state(null);
 
   // Track which card has its player expanded
   let expandedPlayer: string | null = $state(null);
@@ -126,7 +128,15 @@
     liveRoomLoadingId = session.local_session_id;
     liveRoomErrorId   = null;
     try {
-      await openLiveRoom(session.knowledge_session_id);
+      if (session.status === 'stopped_local' || session.status === 'synced' || session.status === 'mock_synced') {
+        const result = await openFinalizedSession(session.knowledge_session_id);
+        if (result.kind === 'live_state') {
+          // live-state returned no Studio URL — open workspace (Live Room tab) instead
+          artifactsSession = session;
+        }
+      } else {
+        await openLiveRoom(session.knowledge_session_id);
+      }
     } catch {
       liveRoomErrorId = session.local_session_id;
     } finally {
@@ -186,6 +196,13 @@
 </script>
 
 <div class="sessions-list">
+  {#if artifactsSession?.knowledge_session_id}
+    <PostSessionArtifactsPanel
+      sessionId={artifactsSession.knowledge_session_id}
+      title={artifactsSession.title}
+      onclose={() => { artifactsSession = null; }}
+    />
+  {/if}
   {#if loading}
     <div class="loading">
       <span class="spinner-sm"></span> Loading…
@@ -260,6 +277,21 @@
 
           <!-- Title -->
           <div class="card-title">{session.title}</div>
+
+          <!-- Session content CTA — visible for synced/stopped sessions with EigenVertex content -->
+          {#if !selectMode && session.knowledge_session_id && (session.status === 'synced' || session.status === 'stopped_local' || session.status === 'mock_synced')}
+            <div class="content-cta-row" role="none" onclick={(e) => e.stopPropagation()}>
+              <button
+                class="content-cta-btn"
+                onclick={(e) => { e.stopPropagation(); artifactsSession = session; }}
+              >
+                <svg width="12" height="12" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 1.8h6l3 3V13H3z"/><path d="M9 1.8v3h3M5 8h5M5 10.5h5"/>
+                </svg>
+                Open session content
+              </button>
+            </div>
+          {/if}
 
           <!-- Meta row: date · duration · chunks · size · location -->
           <div class="card-meta">
@@ -339,6 +371,20 @@
                     onclick={(e) => e.stopPropagation()}>
                     {#if session.knowledge_session_id}
                       <button
+                        class="menu-item"
+                        role="menuitem"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          openMenu = null;
+                          artifactsSession = session;
+                        }}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M3 1.8h6l3 3V13H3z"/><path d="M9 1.8v3h3M5 8h5M5 10.5h5"/>
+                        </svg>
+                        Open session content
+                      </button>
+                      <button
                         class="menu-item menu-item-live-room"
                         role="menuitem"
                         disabled={liveRoomLoadingId === session.local_session_id}
@@ -348,7 +394,7 @@
                           <rect x="1" y="3" width="13" height="9" rx="1.5"/>
                           <path d="M5 7h5M7.5 5v4"/>
                         </svg>
-                        {liveRoomLoadingId === session.local_session_id ? 'Ouverture…' : 'Voir la Live Room'}
+                        {#if liveRoomLoadingId === session.local_session_id}<span class="spinner-sm"></span>Opening…{:else}Open Live Room{/if}
                         {#if liveRoomErrorId === session.local_session_id}
                           <span class="menu-hint menu-hint-error">Erreur</span>
                         {/if}
@@ -505,6 +551,20 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  /* ── Open session content CTA ── */
+  .content-cta-row {
+    display: flex;
+  }
+  .content-cta-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 13px; border-radius: 20px; font-size: .75rem; font-weight: 600;
+    border: 1px solid rgba(87,184,222,.4); background: rgba(21,62,74,.45); color: #b6e4ff;
+    cursor: pointer; transition: background 120ms, border-color 120ms;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .content-cta-btn:hover { background: rgba(21,62,74,.7); border-color: rgba(87,184,222,.65); }
+  .content-cta-btn:active { opacity: .8; }
 
   /* ── Actions ── */
   .card-actions {

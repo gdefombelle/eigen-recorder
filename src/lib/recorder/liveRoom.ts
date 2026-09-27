@@ -82,12 +82,13 @@ export type FinalizedSessionResult =
  * Open or display a finalized (stopped/synced) session.
  * Never calls POST /live-share.
  *
- * Two paths:
+ * Three paths — tried in order:
  *  1. Cache hit (session was active this app session): opens the cached share URL
  *     in the system browser and returns { kind: 'opened_url' }.
- *  2. No cache: fetches GET /live-state (read-only, no side effects) and returns
- *     { kind: 'live_state', data } for the caller to render in-app.
- *     The backend returns transcript, summary, participants — no public share URL.
+ *  2. No cache: fetches GET /live-state (read-only). If the response includes
+ *     `view_url` (the Studio Live Room URL), opens it and returns { kind: 'opened_url' }.
+ *  3. No `view_url`: returns { kind: 'live_state', data } for the caller to render
+ *     in-app via the Session workspace panel.
  */
 export async function openFinalizedSession(knowledgeSessionId: string): Promise<FinalizedSessionResult> {
   const cached = getCachedLiveShareUrl(knowledgeSessionId);
@@ -96,6 +97,10 @@ export async function openFinalizedSession(knowledgeSessionId: string): Promise<
     return { kind: 'opened_url' };
   }
   const data = await getLiveState(knowledgeSessionId);
+  if (data.view_url) {
+    await openLiveRoomUrl(data.view_url);
+    return { kind: 'opened_url' };
+  }
   return { kind: 'live_state', data };
 }
 

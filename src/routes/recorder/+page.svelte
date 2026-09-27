@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { langStore, t } from '$lib/i18n/index';
-  import { authStore, isAuthenticated, getUser } from '$lib/auth/auth';
+  import { authStore, isAuthenticated, getUser, authPhaseStore } from '$lib/auth/auth';
   import { recorderStore } from '$lib/recorder/recorderStore';
   import OfflineSessionsList from '$lib/components/OfflineSessionsList.svelte';
   import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
@@ -38,7 +38,9 @@
   }
 
   let store  = $derived($recorderStore);
-  let authed = $derived(isAuthenticated());
+  // Derived from the store, not isAuthenticated(): get(_user) creates no
+  // reactive subscription, so the gate never unlocked after a silent refresh.
+  let authed = $derived($authStore !== null);
   let user   = $derived(getUser());
 
   let isFr = $derived($langStore === 'fr');
@@ -162,6 +164,10 @@
             </svg>
           </button>
           <a href="/recorder/offline" class="btn-secondary">{HERO.cta_sess}</a>
+        {:else if $authPhaseStore === 'restoring'}
+          <!-- Session still being recovered — never flash a sign-up CTA at a
+               user who is about to be authenticated. -->
+          <span class="auth-restoring">…</span>
         {:else}
           <a href="/auth?tab=register" class="btn-primary">
             {HERO.cta_reg}
@@ -325,7 +331,7 @@
   </section>
 
   <!-- ─── Final CTA ────────────────────────────────────────────────────────── -->
-  {#if !authed}
+  {#if $authPhaseStore === 'anonymous'}
     <section class="final-cta">
       <svg width="36" height="36" viewBox="0 0 28 28" fill="none" aria-hidden="true">
         <polygon points="14,1.7 26.3,14 14,26.3 1.7,14" stroke="#9ad1ff" stroke-width="1.5"/>

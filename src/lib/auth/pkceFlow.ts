@@ -87,6 +87,32 @@ function buildUser(res: TokenResponse): EVUser {
 // ── HTTP helpers ───────────────────────────────────────────────────────────────
 
 /**
+ * Token-endpoint failure that carries the HTTP status.
+ *
+ * The status is what lets _doSilentRefresh() tell a revoked refresh token
+ * (401/403 — the session is definitively dead) from a transient failure
+ * (offline, 5xx, timeout — keep the session). A plain Error loses that
+ * distinction and leaves a dead session looking signed in forever.
+ */
+export class TokenHttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = 'TokenHttpError';
+  }
+}
+
+// CapacitorHttp defaults to a 600_000ms (10 MINUTE) timeout when neither
+// connectTimeout nor readTimeout is given (see HttpRequestHandler.swift:
+// `timeout = (connectTimeout ?? readTimeout ?? 600000.0) / 1000.0`). A stalled
+// refresh call — poor signal, a backend hiccup — hung for up to 10 minutes
+// with no way to recover, and because every request() call in api.ts awaits
+// tryEnsureFresh() BEFORE its own (correctly timed-out) transport call, this
+// hang blocked ALL data loading upstream of it: the "stuck forever" spinner
+// and the missing Chat tab (gated on `minutes`, which never arrived) were both
+// this same hang, not separate bugs. Same bound as api.ts's REQUEST_TIMEOUT_MS.
+const TOKEN_REQUEST_TIMEOUT_MS = 20_000;
+
+/**
  * Native HTTP POST via CapacitorHttp (routes through iOS URLSession).
  * Required for the token exchange on iOS: WKWebView's WebProcess is suspended
  * during the Safari→app transition (ProcessSuspension / markAllLayersVolatile),
@@ -100,13 +126,15 @@ async function nativePost<T>(path: string, body: Record<string, string>): Promis
     url,
     headers: { 'Content-Type': 'application/json' },
     data: body,
+    connectTimeout: TOKEN_REQUEST_TIMEOUT_MS,
+    readTimeout:    TOKEN_REQUEST_TIMEOUT_MS,
   });
   if (res.status < 200 || res.status >= 300) {
     const detail =
       typeof res.data?.detail === 'string' ? res.data.detail :
       typeof res.data?.message === 'string' ? res.data.message :
       `HTTP ${res.status}`;
-    throw new Error(detail);
+    throw new TokenHttpError(res.status, detail);
   }
   return res.data as T;
 }
@@ -119,18 +147,26 @@ async function nativePost<T>(path: string, body: Record<string, string>): Promis
 async function webPost<T>(path: string, body: Record<string, string>): Promise<T> {
   const url = `${getDirectApiBase()}${path}`;
   console.log('[PKCE] webPost →', url);
-  const res = await fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TOKEN_REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+      signal:  controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as Record<string, unknown>;
     const detail =
       typeof data?.detail  === 'string' ? data.detail  :
       typeof data?.message === 'string' ? data.message :
       `HTTP ${res.status}`;
-    throw new Error(detail as string);
+    throw new TokenHttpError(res.status, detail as string);
   }
   return res.json() as Promise<T>;
 }
@@ -163,14 +199,24 @@ async function exchangeCode(
         const me = await CapacitorHttp.get({
           url: `${getDirectApiBase()}/auth/me`,
           headers: { Authorization: `Bearer ${tokens.access_token}` },
+          connectTimeout: TOKEN_REQUEST_TIMEOUT_MS,
+          readTimeout:    TOKEN_REQUEST_TIMEOUT_MS,
         });
         if (me.status === 200 && me.data?.email) {
           return { ...user, email: me.data.email, name: me.data.name ?? user.name };
         }
       } else {
-        const res = await fetch(`${getDirectApiBase()}/auth/me`, {
-          headers: { Authorization: `Bearer ${tokens.access_token}` },
-        });
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TOKEN_REQUEST_TIMEOUT_MS);
+        let res: Response;
+        try {
+          res = await fetch(`${getDirectApiBase()}/auth/me`, {
+            headers: { Authorization: `Bearer ${tokens.access_token}` },
+            signal:  controller.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
         if (res.ok) {
           const me = await res.json() as Record<string, unknown>;
           if (me?.email) return { ...user, email: String(me.email), name: typeof me.name === 'string' ? me.name : user.name };
@@ -190,17 +236,77 @@ async function exchangeCode(
 
 let _refreshPromise: Promise<EVUser | null> | null = null;
 
+// ── Refresh diagnostics ──────────────────────────────────────────────────────
+// On-device visibility into WHY a silent refresh did or didn't happen, surfaced
+// in Settings › Diagnostics. Records outcomes and HTTP statuses only — never a
+// token, a prefix, or any part of one.
+
+export interface RefreshDiag {
+  at:      number;
+  outcome: string;
+}
+
+export const refreshDiagStore = writable<RefreshDiag | null>(null);
+
+function noteRefresh(outcome: string): void {
+  refreshDiagStore.set({ at: Date.now(), outcome });
+}
+
+// Hard ceiling on a whole refresh attempt, as a STRUCTURAL backstop.
+//
+// The single-flight guard below caches _refreshPromise and only clears it in
+// .finally(). If anything inside _doSilentRefresh() ever fails to settle — a
+// Keychain bridge call that never calls back, a transport that slips its own
+// timeout — that .finally() never runs, _refreshPromise stays set forever, and
+// EVERY later silentRefresh() returns the same dead promise. One transient
+// hang then deadlocks auth for the rest of the app session, which is why the
+// spinner never recovered on its own and only a full re-login cleared it.
+//
+// This wrapper guarantees the promise always settles, whatever happens inside.
+// It is deliberately longer than the per-call timeouts so those fire first and
+// produce better diagnostics; this only catches what they miss.
+const REFRESH_TOTAL_BUDGET_MS = 30_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} exceeded ${ms}ms`)),
+      ms,
+    );
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 export function silentRefresh(): Promise<EVUser | null> {
   // Keychain is irrecoverable — don't attempt network refresh (would replay consumed token).
   if (_keychainBroken) return Promise.resolve(null);
   if (_refreshPromise) return _refreshPromise;
-  _refreshPromise = _doSilentRefresh().finally(() => { _refreshPromise = null; });
+  _refreshPromise = withTimeout(_doSilentRefresh(), REFRESH_TOTAL_BUDGET_MS, 'silentRefresh')
+    .catch((e: unknown) => {
+      // A blown budget is transient, never a revocation: keep the session and
+      // let the next call retry rather than signing a healthy user out.
+      console.warn('[PKCE] Refresh did not complete:', e instanceof Error ? e.message : String(e));
+      return null;
+    })
+    .finally(() => { _refreshPromise = null; });
   return _refreshPromise;
 }
 
 async function _doSilentRefresh(): Promise<EVUser | null> {
-  const refreshToken = await secureGet(STORAGE_KEY_REFRESH);
-  if (!refreshToken) return null;
+  // Keychain reads go through the Capacitor bridge and can stall; secureGet()
+  // only catches rejections, not a call that never comes back.
+  const refreshToken = await withTimeout(
+    secureGet(STORAGE_KEY_REFRESH),
+    TOKEN_REQUEST_TIMEOUT_MS,
+    'Keychain read',
+  );
+  if (!refreshToken) {
+    noteRefresh('no refresh token in Keychain');
+    return null;
+  }
   try {
     const payload = {
       grant_type:    'refresh_token',
@@ -223,6 +329,7 @@ async function _doSilentRefresh(): Promise<EVUser | null> {
       name:  base.name ?? existing?.name,
     };
     setUser(user);
+    noteRefresh('ok');
 
     // Save the new refresh token.
     // The old token was consumed by the rotation exchange — it must NOT survive
@@ -263,9 +370,20 @@ async function _doSilentRefresh(): Promise<EVUser | null> {
     }
     return user;
   } catch (e: unknown) {
-    // 401 = refresh revoked → force logout; other errors are transient
     const status = (e as { status?: number })?.status;
-    if (status === 401) await pkceLogout();
+    // 401/403 → the refresh token is revoked or invalid. The session is
+    // definitively dead, so clear it: leaving it in place would show a signed-in
+    // UI whose every request 401s, with no way back to the login screen.
+    //
+    // Anything else (offline, 5xx, timeout) is transient and must NOT log the
+    // user out — a flaky network would otherwise destroy a healthy session.
+    if (status === 401 || status === 403) {
+      console.warn(`[PKCE] Refresh rejected (HTTP ${status}) — clearing session.`);
+      noteRefresh(`revoked (HTTP ${status}) — session cleared`);
+      await pkceLogout();
+    } else {
+      noteRefresh(status ? `failed (HTTP ${status}) — session kept` : 'network failure — session kept');
+    }
     return null;
   }
 }
@@ -276,6 +394,44 @@ export async function ensureFreshToken(): Promise<EVUser | null> {
   const user = getUser();
   if (user && user.expiresAt - Date.now() > 60_000) return user;
   return silentRefresh();
+}
+
+// ── Foreground lifecycle ──────────────────────────────────────────────────────
+
+/**
+ * Re-validate the session every time the app returns to the foreground.
+ *
+ * iOS suspends the WebView without re-running onMount, so a resume after more
+ * than ~15 minutes lands on an expired access token that nothing renews — the
+ * user appears logged out despite a perfectly valid Keychain refresh token.
+ * The web/PWA path uses visibilitychange + focus for the same reason.
+ *
+ * Returns a cleanup function.
+ */
+export function startAuthLifecycle(): () => void {
+  let disposed = false;
+  const onForeground = () => { if (!disposed) ensureFreshToken().catch(() => {/* transient */}); };
+
+  if (isNative()) {
+    const handle = import('@capacitor/app').then(({ App }) =>
+      App.addListener('appStateChange', ({ isActive }: { isActive: boolean }) => {
+        if (isActive) onForeground();
+      }),
+    );
+    return () => {
+      disposed = true;
+      handle.then((h) => h.remove()).catch(() => {/* never registered */});
+    };
+  }
+
+  const onVisible = () => { if (document.visibilityState === 'visible') onForeground(); };
+  document.addEventListener('visibilitychange', onVisible);
+  window.addEventListener('focus', onForeground);
+  return () => {
+    disposed = true;
+    document.removeEventListener('visibilitychange', onVisible);
+    window.removeEventListener('focus', onForeground);
+  };
 }
 
 // ── Logout ────────────────────────────────────────────────────────────────────
@@ -310,8 +466,15 @@ async function _finaliseLogin(user: EVUser): Promise<EVUser> {
   console.log('[PKCE] Login successful —', user.email);
 
   // Persist refresh token + family in background (fire-and-forget).
+  // Never write an empty string: secureGet() would read it back as falsy and
+  // _doSilentRefresh() would bail out, disabling silent refresh permanently.
+  if (!user.refreshToken) {
+    console.warn('[PKCE] Token response carried no refresh token — session will end when the access token expires.');
+  }
   Promise.allSettled([
-    secureSave(STORAGE_KEY_REFRESH, user.refreshToken ?? ''),
+    user.refreshToken
+      ? secureSave(STORAGE_KEY_REFRESH, user.refreshToken)
+      : Promise.resolve(),
     user.rotationFamilyId
       ? secureSave(STORAGE_KEY_FAMILY, user.rotationFamilyId)
       : Promise.resolve(),

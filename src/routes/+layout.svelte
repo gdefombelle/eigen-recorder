@@ -3,8 +3,8 @@
   import type { Snippet } from 'svelte';
   import { onMount } from 'svelte';
   import { recorderStore } from '$lib/recorder/recorderStore';
-  import { initAuth, isAuthenticated } from '$lib/auth/auth';
-  import { silentRefresh } from '$lib/auth/pkceFlow';
+  import { initAuth, isAuthenticated, setAuthReady } from '$lib/auth/auth';
+  import { silentRefresh, startAuthLifecycle } from '$lib/auth/pkceFlow';
   import { loadConfig } from '$lib/auth/config';
   import { loadLang, langStore, t } from '$lib/i18n/index';
   import { page } from '$app/stores';
@@ -26,8 +26,22 @@
     initAuth();
     loadLang();
     recorderStore.init();
-    // If no valid access token but a refresh token may exist → silent refresh
-    if (!isAuthenticated()) silentRefresh().catch(() => {/* ignore */});
+
+    // Restore the session BEFORE the UI concludes the user is logged out.
+    // authReady stays false until this settles, so gates can show a restoring
+    // state instead of locking out a user whose refresh is still in flight.
+    (async () => {
+      try {
+        if (!isAuthenticated()) await silentRefresh();
+      } catch {
+        /* transient — the reactive 401 path retries */
+      } finally {
+        setAuthReady(true);
+      }
+    })();
+
+    // Re-validate on every return to the foreground (iOS resume / tab focus).
+    return startAuthLifecycle();
   });
 
   let currentPath = $derived($page.url.pathname);

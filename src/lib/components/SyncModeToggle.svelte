@@ -2,7 +2,7 @@
 <script lang="ts">
   import type { SyncMode } from '$lib/recorder/types';
   import { langStore } from '$lib/i18n/index';
-  import { isAuthenticated } from '$lib/auth/auth';
+  import { authStore } from '$lib/auth/auth';
   import { goto } from '$app/navigation';
 
   let { mode = 'local', online = true, onchange }: {
@@ -11,7 +11,9 @@
     onchange?: (m: SyncMode) => void;
   } = $props();
 
-  let authed = $derived(isAuthenticated());
+  // Derived from the store, not isAuthenticated(): get(_user) creates no
+  // reactive subscription, so the gate never unlocked after a silent refresh.
+  let authed = $derived($authStore !== null);
   let canStream = $derived(authed && online);
   let isFr = $derived($langStore === 'fr');
 

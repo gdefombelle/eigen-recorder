@@ -329,12 +329,12 @@
   onMount(() => {
     sttSupported = 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
     isMobileViewport = window.matchMedia('(max-width: 600px)').matches;
-    loadRecordableSessions();
   });
 
   // Auth is restored by the parent layout and may complete after this form mounts.
-  // Subscribe to the store so the Thread destination appears as soon as the user is
-  // authenticated, instead of evaluating isAuthenticated() only once at mount time.
+  // Subscribe to the store so the Thread destination and the planned-session list
+  // appear as soon as the session is restored, instead of evaluating
+  // isAuthenticated() once at mount time and silently giving up.
   $effect(() => {
     const user = $authStore;
     if (!user || threadsLoadedForToken === user.token) return;
@@ -344,6 +344,7 @@
       .then((items) => { threads = items; })
       .catch(() => { threads = []; })
       .finally(() => { threadsLoading = false; });
+    loadRecordableSessions();
   });
 
   function startSTT(field: FieldName) {
@@ -564,7 +565,7 @@
     </div>
 
     <!-- ── Planned meetings picker ── -->
-    {#if isAuthenticated()}
+    {#if $authStore !== null}
       <div class="planned-section">
         <button
           type="button"
@@ -697,7 +698,7 @@
     </div>
 
     <!-- ── Explicit Thread destination ── -->
-    {#if isAuthenticated()}
+    {#if $authStore !== null}
       <div class="form-field">
         <label for="thread-destination">Thread destination <span style="font-weight:400;opacity:.65">(optional)</span></label>
         <select id="thread-destination" class="input" bind:value={selectedThreadId} disabled={threadsLoading}>

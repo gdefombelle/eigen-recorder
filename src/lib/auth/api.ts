@@ -3,7 +3,74 @@
 
 import { getApiBase, getDirectApiBase } from './config';
 import { getUser } from './auth';
+import { isNative } from '$lib/platform';
 import type { RecordableKnowledgeSession } from '$lib/recorder/types';
+
+// ── Transport ────────────────────────────────────────────────────────────────
+//
+// fetch() can hang FOREVER with no error and no timeout when WKWebView's
+// WebProcess is suspended (documented in pkceFlow.ts for the token exchange —
+// the same risk applies to every other data call routed through fetch()).
+// A request stuck in that state never resolves nor rejects, so Promise.allSettled
+// callers (e.g. the session-content workspace) spin indefinitely with no way to
+// recover — this is the "infinite loading spinner" failure mode.
+//
+// Fix: native builds route JSON requests through CapacitorHttp (iOS URLSession,
+// immune to WebView suspension), and every transport gets an explicit timeout
+// so a request that truly cannot complete fails with a retriable ApiError(0)
+// instead of hanging forever. FormData (file uploads) stays on fetch() —
+// CapacitorHttp doesn't reliably carry multipart bodies.
+
+const REQUEST_TIMEOUT_MS = 20_000;
+
+interface RawResponse {
+  status: number;
+  json(): Promise<unknown>;
+}
+
+async function timedFetch(url: string, init: RequestInit): Promise<RawResponse> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    return { status: res.status, json: () => res.json() };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function nativeHttp(
+  url: string,
+  method: string,
+  headers: Record<string, string>,
+  body: string | undefined,
+): Promise<RawResponse> {
+  const { CapacitorHttp } = await import('@capacitor/core');
+  const res = await CapacitorHttp.request({
+    url,
+    method,
+    headers,
+    // CapacitorHttp serializes an object as JSON; a pre-stringified body must
+    // be parsed back so it isn't sent as a double-encoded JSON string.
+    data: body !== undefined ? JSON.parse(body) : undefined,
+    connectTimeout: REQUEST_TIMEOUT_MS,
+    readTimeout:    REQUEST_TIMEOUT_MS,
+  });
+  return { status: res.status, json: () => Promise.resolve(res.data) };
+}
+
+/** Transport-agnostic request: CapacitorHttp for JSON on native, fetch() otherwise. */
+async function transportRequest(
+  url: string,
+  opts: RequestInit,
+  headers: Record<string, string>,
+  isFormData: boolean,
+): Promise<RawResponse> {
+  if (isNative() && !isFormData) {
+    return nativeHttp(url, opts.method ?? 'GET', headers, opts.body as string | undefined);
+  }
+  return timedFetch(url, { ...opts, headers });
+}
 
 // Lazy imports avoid circular dep (pkceFlow → api → pkceFlow)
 
@@ -63,14 +130,17 @@ export async function request<T>(
     console.error(`[EigenMeeting] request() path starts with /v1 — double prefix! Fix: remove /v1 from "${path}"`);
   }
 
-  let res: Response;
+  const url = `${getApiBase()}${path}`;
+  let res: RawResponse;
   try {
-    res = await fetch(`${getApiBase()}${path}`, { ...opts, headers });
-  } catch {
-    throw new ApiError(0, 'Server unreachable. Check your connection and the URL in Settings.', true);
+    res = await transportRequest(url, opts, headers, isFormData);
+  } catch (e) {
+    // AbortError (our timeout) and network failures land here identically —
+    // both mean "the request didn't complete," both are safe to retry.
+    throw new ApiError(0, describeTransportFailure(e), true);
   }
 
-  if (!res.ok) {
+  if (res.status < 200 || res.status >= 300) {
     // 401 with a PKCE session → try silent refresh once, then retry
     if (res.status === 401 && !skipAuth) {
       const newToken = await tryRefresh();
@@ -81,13 +151,13 @@ export async function request<T>(
           ...(opts.headers as Record<string, string> | undefined),
           Authorization: `Bearer ${newToken}`,
         };
-        let retryRes: Response;
+        let retryRes: RawResponse;
         try {
-          retryRes = await fetch(`${getApiBase()}${path}`, { ...opts, headers: retryHeaders });
-        } catch {
-          throw new ApiError(0, 'Server unreachable. Check your connection and the URL in Settings.', true);
+          retryRes = await transportRequest(url, opts, retryHeaders, isFormData);
+        } catch (e) {
+          throw new ApiError(0, describeTransportFailure(e), true);
         }
-        if (retryRes.ok) {
+        if (retryRes.status >= 200 && retryRes.status < 300) {
           if (retryRes.status === 204) return undefined as T;
           return retryRes.json() as Promise<T>;
         }
@@ -95,7 +165,7 @@ export async function request<T>(
         res = retryRes;
       }
     }
-    const body = await res.json().catch(() => ({ message: res.statusText }));
+    const body = (await res.json().catch(() => ({ message: 'Request failed' }))) as Record<string, unknown>;
     // FastAPI returns validation errors as body.detail = [{type,loc,msg,input}, ...]
     // Serialize arrays so they produce a readable string instead of [object Object].
     const detail =
@@ -108,12 +178,19 @@ export async function request<T>(
           : undefined;
     throw new ApiError(
       res.status,
-      body.message ?? detail ?? res.statusText,
+      (body.message as string | undefined) ?? detail ?? `HTTP ${res.status}`,
       res.status >= 500 || res.status === 429
     );
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+function describeTransportFailure(e: unknown): string {
+  if (e instanceof DOMException && e.name === 'AbortError') {
+    return 'Request timed out. Check your connection and try again.';
+  }
+  return 'Server unreachable. Check your connection and the URL in Settings.';
 }
 
 export interface AuthResponse {
@@ -125,16 +202,21 @@ export interface AuthResponse {
 }
 
 export async function apiMeWithToken(token: string): Promise<{ email: string; name?: string }> {
-  let res: Response;
+  // Runs right after the Safari→app OAuth handoff — exactly the WKWebView
+  // suspension window that makes a plain fetch() hang forever (see pkceFlow.ts).
+  let res: RawResponse;
   try {
-    res = await fetch(`${getApiBase()}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  } catch {
-    throw new ApiError(0, 'Server unreachable.', true);
+    res = await transportRequest(
+      `${getApiBase()}/auth/me`,
+      {},
+      { Authorization: `Bearer ${token}` },
+      false,
+    );
+  } catch (e) {
+    throw new ApiError(0, describeTransportFailure(e), true);
   }
-  if (!res.ok) throw new ApiError(res.status, res.statusText, res.status >= 500);
-  return res.json();
+  if (res.status < 200 || res.status >= 300) throw new ApiError(res.status, `HTTP ${res.status}`, res.status >= 500);
+  return res.json() as Promise<{ email: string; name?: string }>;
 }
 
 export async function apiLogin(email: string, password: string): Promise<AuthResponse> {

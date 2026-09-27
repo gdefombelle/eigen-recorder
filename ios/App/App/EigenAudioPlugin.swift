@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import CoreLocation
+import Speech
 import Capacitor
 
 // EigenAudioPlugin — AVAudioRecorder-based (same API as Dictaphone).
@@ -24,6 +25,10 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getElapsedMs",      returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getMicLevel",       returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "mergeChunks",       returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "dictationPermission", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startDictation",      returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopDictation",       returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelDictation",     returnType: CAPPluginReturnPromise),
     ]
 
     // ── Location ──────────────────────────────────────────────────────────
@@ -439,6 +444,189 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
         }
+    }
+
+    // ── Dictation (SFSpeechRecognizer) ─────────────────────────────────────
+    //
+    // Speech-to-text for text composers. Deliberately refuses to run while a
+    // capture is in flight so it can never disturb a recording, and restores
+    // the audio session category on teardown.
+    //
+    // Streams to JS via events rather than the promise:
+    //   dictationResult { text, isFinal } · dictationLevel { level } · dictationError { kind, message }
+
+    private var speechRecognizer:   SFSpeechRecognizer?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask:    SFSpeechRecognitionTask?
+    private var dictationEngine:    AVAudioEngine?
+    private var dictationText:      String = ""
+
+    private func authLabel(_ status: SFSpeechRecognizerAuthorizationStatus) -> String {
+        switch status {
+        case .authorized:    return "granted"
+        case .denied:        return "denied"
+        case .restricted:    return "restricted"
+        case .notDetermined: return "prompt"
+        @unknown default:    return "denied"
+        }
+    }
+
+    /// Request speech + microphone authorization together and report each one,
+    /// so the UI can tell "never asked" apart from "denied in Settings".
+    @objc func dictationPermission(_ call: CAPPluginCall) {
+        SFSpeechRecognizer.requestAuthorization { speechStatus in
+            AVAudioSession.sharedInstance().requestRecordPermission { micGranted in
+                call.resolve([
+                    "granted":    speechStatus == .authorized && micGranted,
+                    "speech":     self.authLabel(speechStatus),
+                    "microphone": micGranted ? "granted" : "denied",
+                ])
+            }
+        }
+    }
+
+    @objc func startDictation(_ call: CAPPluginCall) {
+        // Never interfere with an active capture.
+        if recorder?.isRecording == true || isPaused {
+            call.reject("A recording is in progress.", "RECORDING_ACTIVE")
+            return
+        }
+
+        let localeId = call.getString("locale") ?? "en-US"
+
+        SFSpeechRecognizer.requestAuthorization { speechStatus in
+            guard speechStatus == .authorized else {
+                DispatchQueue.main.async {
+                    call.reject("Speech recognition not authorized.", self.authLabel(speechStatus).uppercased())
+                }
+                return
+            }
+            AVAudioSession.sharedInstance().requestRecordPermission { micGranted in
+                guard micGranted else {
+                    DispatchQueue.main.async { call.reject("Microphone not authorized.", "DENIED") }
+                    return
+                }
+                DispatchQueue.main.async { self.beginDictation(call, localeId: localeId) }
+            }
+        }
+    }
+
+    private func beginDictation(_ call: CAPPluginCall, localeId: String) {
+        teardownDictation()
+        dictationText = ""
+
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeId)),
+              recognizer.isAvailable else {
+            call.reject("Speech recognition unavailable for \(localeId).", "UNAVAILABLE")
+            return
+        }
+        speechRecognizer = recognizer
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        // On-device keeps audio off Apple's servers when the locale supports it.
+        if #available(iOS 13.0, *), recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
+        recognitionRequest = request
+
+        let engine = AVAudioEngine()
+        dictationEngine = engine
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            call.reject("Could not start audio session: \(error.localizedDescription)", "AUDIO_SESSION")
+            teardownDictation()
+            return
+        }
+
+        let input  = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            self?.recognitionRequest?.append(buffer)
+            self?.emitLevel(from: buffer)
+        }
+
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self = self else { return }
+            if let result = result {
+                self.dictationText = result.bestTranscription.formattedString
+                self.notifyListeners("dictationResult", data: [
+                    "text":    self.dictationText,
+                    "isFinal": result.isFinal,
+                ])
+            }
+            if error != nil || result?.isFinal == true {
+                // A cancelled task reports an error too — only surface real failures.
+                if error != nil && self.recognitionTask != nil && result == nil {
+                    self.notifyListeners("dictationError", data: [
+                        "kind":    "failed",
+                        "message": "Dictation failed. Please try again.",
+                    ])
+                }
+                self.teardownDictation()
+            }
+        }
+
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            call.reject("Could not start microphone: \(error.localizedDescription)", "AUDIO_ENGINE")
+            teardownDictation()
+            return
+        }
+        call.resolve(["started": true])
+    }
+
+    /// Mono peak amplitude 0..1, matching the web meter's math.
+    private func emitLevel(from buffer: AVAudioPCMBuffer) {
+        guard let channel = buffer.floatChannelData?[0] else { return }
+        let count = Int(buffer.frameLength)
+        var peak: Float = 0
+        for i in 0..<count {
+            let v = abs(channel[i])
+            if v > peak { peak = v }
+        }
+        // ×4 boost so quiet speech is still visible, same as AudioRecorder.
+        let level = min(1.0, peak * 4)
+        notifyListeners("dictationLevel", data: ["level": level])
+    }
+
+    @objc func stopDictation(_ call: CAPPluginCall) {
+        let text = dictationText
+        teardownDictation()
+        call.resolve(["text": text])
+    }
+
+    @objc func cancelDictation(_ call: CAPPluginCall) {
+        dictationText = ""
+        teardownDictation()
+        call.resolve()
+    }
+
+    private func teardownDictation() {
+        if let engine = dictationEngine {
+            if engine.isRunning { engine.stop() }
+            engine.inputNode.removeTap(onBus: 0)
+        }
+        dictationEngine = nil
+
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+
+        let task = recognitionTask
+        recognitionTask = nil
+        task?.cancel()
+
+        speechRecognizer = nil
+        notifyListeners("dictationLevel", data: ["level": 0])
+
+        // Hand the audio session back so a later capture starts from a clean state.
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
 

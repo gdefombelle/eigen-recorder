@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { t, langStore, setLang, type Lang } from '$lib/i18n/index';
-  import { authStore, isAuthenticated, clearUser, getUser } from '$lib/auth/auth';
-  import { pkceLogout } from '$lib/auth/pkceFlow';
+  import { authStore, clearUser, getUser } from '$lib/auth/auth';
+  import { pkceLogout, refreshDiagStore } from '$lib/auth/pkceFlow';
   import { getServerUrl, getDefaultServerUrl, isProxyMode, setServerUrl, resetServerUrl } from '$lib/auth/config';
   import { recorderStore } from '$lib/recorder/recorderStore';
   import { offlineStorage } from '$lib/recorder/offlineStorage';
@@ -15,8 +15,22 @@
   $: _auth  = $authStore;
   $: _lang  = $langStore;
   $: store  = $recorderStore;
-  $: authed = isAuthenticated();
+  // Session presence, NOT access-token freshness. isAuthenticated() goes false
+  // the moment the 15-minute access token lapses, which had Settings showing
+  // "Sign in to sync" while Home showed the same user as signed in — two
+  // screens disagreeing about the same session. An expired access token is
+  // renewed transparently before the next request; only a cleared session
+  // means signed out.
+  $: authed = _auth !== null;
   $: user   = getUser();
+
+  // Access-token freshness, shown separately from session presence so the two
+  // are never conflated again. Reports state only — never any token value.
+  $: tokenState = !_auth
+    ? '—'
+    : _auth.expiresAt > now
+      ? `valid ${Math.round((_auth.expiresAt - now) / 1000)}s`
+      : `expired ${Math.round((now - _auth.expiresAt) / 1000)}s ago`;
 
   // Server URL form
   let urlInput  = '';
@@ -43,7 +57,16 @@
     totalBytes   = await offlineStorage.getTotalStorageBytes();
     const all    = await offlineStorage.getAllSessions();
     sessionCount = all.length;
+
   });
+
+  // Date.now() is not reactive, so the token countdown would freeze at whatever
+  // it read on mount — misleading precisely while you sit watching it wait for
+  // the refresh window. Tick it. (Registered outside the async onMount above:
+  // an async callback returns a Promise, so Svelte would never run its cleanup.)
+  let now = Date.now();
+  const nowTimer = setInterval(() => { now = Date.now(); }, 1000);
+  onDestroy(() => clearInterval(nowTimer));
 
   function validate(url: string): string {
     if (!url.trim()) return t().settings.errorEmpty;
@@ -311,6 +334,8 @@
           <span class="diag-key">MediaRecorder</span><span class="diag-val">{typeof MediaRecorder !== 'undefined' ? '✓' : '✗'}</span>
           <span class="diag-key">IndexedDB</span> <span class="diag-val">{typeof indexedDB !== 'undefined' ? '✓' : '✗'}</span>
           <span class="diag-key">Auth</span>       <span class="diag-val" class:online={authed} class:offline={!authed}>{authed ? '● Signed in' : '● Signed out'}</span>
+          <span class="diag-key">Access token</span><span class="diag-val">{tokenState}</span>
+          <span class="diag-key">Last refresh</span><span class="diag-val">{$refreshDiagStore ? $refreshDiagStore.outcome : 'not attempted yet'}</span>
         </div>
       </section>
 

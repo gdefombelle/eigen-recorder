@@ -19,6 +19,13 @@
       : `${m}min ${String(s).padStart(2,'0')}s`;
   }
 
+  function fmtMs(ms: number): string {
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
   function fmtDate(iso: string | null | undefined): string {
     if (!iso) return '';
     try {
@@ -28,11 +35,11 @@
     } catch { return iso; }
   }
 
-  const displayTitle = $derived(data.title ?? title ?? 'Réunion');
+  const displayTitle = $derived(data.title ?? title ?? 'Session');
   const duration     = $derived(fmtDuration(data.duration_ms));
   const startedAt    = $derived(fmtDate(data.started_at));
   const participants = $derived(data.participants?.filter(p => p.display_name) ?? []);
-  const hasContent   = $derived(!!(data.summary || data.transcript || data.action_items?.length));
+  const hasContent   = $derived(!!(data.summary_text || data.transcript_segments?.length || data.actions?.length));
 </script>
 
 <div class="panel-overlay" role="dialog" aria-modal="true" aria-label="Réunion finalisée">
@@ -58,30 +65,39 @@
     <!-- Body -->
     <div class="panel-body">
       {#if !hasContent}
-        <p class="empty-msg">Le compte rendu est en cours de traitement par EigenVertex.</p>
+        <p class="empty-msg">Report processing — check back shortly.</p>
       {:else}
-        {#if data.summary}
+        {#if data.summary_text}
           <section class="section">
-            <h3 class="section-title">Résumé</h3>
-            <p class="section-text">{data.summary}</p>
+            <h3 class="section-title">Summary</h3>
+            <p class="section-text">{data.summary_text}</p>
           </section>
         {/if}
 
-        {#if data.action_items?.length}
+        {#if data.actions?.length}
           <section class="section">
             <h3 class="section-title">Actions</h3>
             <ul class="action-list">
-              {#each data.action_items as item}
-                <li>{item}</li>
+              {#each data.actions as item}
+                <li>{item.text ?? JSON.stringify(item)}</li>
               {/each}
             </ul>
           </section>
         {/if}
 
-        {#if data.transcript}
+        {#if data.transcript_segments?.length}
           <section class="section">
-            <h3 class="section-title">Transcription</h3>
-            <pre class="transcript">{data.transcript}</pre>
+            <h3 class="section-title">Transcript</h3>
+            <div class="transcript-segments">
+              {#each data.transcript_segments as seg}
+                <div class="segment">
+                  {#if seg.speaker_name || seg.start_ms != null}
+                    <span class="seg-meta">{seg.speaker_name ?? ''}{seg.start_ms != null ? ` · ${fmtMs(seg.start_ms)}` : ''}</span>
+                  {/if}
+                  <p class="seg-text">{seg.text}</p>
+                </div>
+              {/each}
+            </div>
           </section>
         {/if}
       {/if}
@@ -91,9 +107,9 @@
 
 <style>
   .panel-overlay {
-    position: absolute;
+    position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: 200;
     background: var(--bg);
     display: flex;
     flex-direction: column;
@@ -214,6 +230,11 @@
     line-height: 1.5;
     color: var(--ev-text);
   }
+
+  .transcript-segments { display: flex; flex-direction: column; gap: 10px; }
+  .segment { display: flex; flex-direction: column; gap: 2px; }
+  .seg-meta { font-size: 0.7rem; font-weight: 600; color: var(--ev-text-muted); letter-spacing: 0.03em; }
+  .seg-text { font-size: 0.86rem; line-height: 1.55; color: var(--ev-text); margin: 0; }
 
   .transcript {
     font-size: 0.8rem;

@@ -16,10 +16,9 @@
   import { t, langStore } from '$lib/i18n/index';
   import SyncModeToggle from './SyncModeToggle.svelte';
   import StreamingIndicator from './StreamingIndicator.svelte';
-  import { openLiveRoom, openFinalizedSession, shareLiveRoom } from '$lib/recorder/liveRoom';
-  import type { LiveStateResponse } from '$lib/recorder/knowledgeSessionApi';
+  import { openLiveRoom, shareLiveRoom } from '$lib/recorder/liveRoom';
   import { keychainErrorStore } from '$lib/auth/pkceFlow';
-  import FinalizedSessionPanel from './FinalizedSessionPanel.svelte';
+  import PostSessionArtifactsPanel from './PostSessionArtifactsPanel.svelte';
 
   let { localSessionId }: { localSessionId: string } = $props();
 
@@ -34,7 +33,9 @@
 
   let safariLimited = $derived(isSafariLimited());
   let mimeSupported = $derived(getSupportedMimeType());
-  let authed    = $derived(isAuthenticated());
+  // Derived from the store, not isAuthenticated(): get(_user) creates no
+  // reactive subscription, so the gate never unlocked after a silent refresh.
+  let authed    = $derived($authStore !== null);
   let syncMode  = $derived(store.syncMode);
   let isStreaming = $derived(isRecording && syncMode === 'stream');
   let liveState = $derived(store.liveStreamState);
@@ -99,8 +100,8 @@
   let liveRoomLoading = $state(false);
   let liveRoomSharing = $state(false);
   let liveRoomError   = $state('');
-  let shareConfirm    = $state('');  // brief "Lien copié" / "Partagé" feedback
-  let liveStateData   = $state<LiveStateResponse | null>(null);
+  let shareConfirm    = $state('');  // brief "Link copied" / "Shared" feedback
+  let artifactsPanelOpen = $state(false);
 
   // Show the Live Room row whenever the session is backed by EigenVertex
   // (i.e. knowledge_session_id is set — true from 'ready' state onwards).
@@ -115,19 +116,10 @@
     liveRoomLoading = true;
     liveRoomError   = '';
     try {
-      if (isStopped) {
-        // Finalized session: never POST /live-share.
-        // Cache hit → opens share URL in browser (same-session case).
-        // No cache → fetches live-state and opens in-app panel.
-        const result = await openFinalizedSession(ksId);
-        if (result.kind === 'live_state') {
-          liveStateData = result.data;
-        }
-      } else {
-        await openLiveRoom(ksId);
-      }
+      // Only called while recording is active or paused — opens the live capture view.
+      await openLiveRoom(ksId);
     } catch (e) {
-      liveRoomError = e instanceof Error ? e.message : 'Impossible d\'ouvrir la Live Room';
+      liveRoomError = e instanceof Error ? e.message : 'Failed to open Live Room';
     } finally {
       liveRoomLoading = false;
     }
@@ -142,12 +134,12 @@
     try {
       const result = await shareLiveRoom(ksId, session?.title ?? 'Session');
       if (result.method === 'clipboard') {
-        shareConfirm = 'Lien copié !';
+        shareConfirm = 'Link copied!';
         setTimeout(() => { shareConfirm = ''; }, 2500);
       }
       // native_share: no confirmation needed — the share sheet gives its own feedback
     } catch (e) {
-      liveRoomError = e instanceof Error ? e.message : 'Impossible de partager';
+      liveRoomError = e instanceof Error ? e.message : 'Failed to share';
     } finally {
       liveRoomSharing = false;
     }
@@ -157,11 +149,11 @@
 <div class="k7-shell">
 
   <!-- ── Finalized session overlay ── -->
-  {#if liveStateData}
-    <FinalizedSessionPanel
-      data={liveStateData}
-      title={session?.title}
-      onclose={() => { liveStateData = null; }}
+  {#if artifactsPanelOpen && session?.knowledge_session_id}
+    <PostSessionArtifactsPanel
+      sessionId={session.knowledge_session_id}
+      title={session.title}
+      onclose={() => { artifactsPanelOpen = false; }}
     />
   {/if}
 
@@ -316,20 +308,20 @@
             class="btn-live-room-inline"
             onclick={handleOpenLiveRoom}
             disabled={liveRoomLoading}
-            title="Ouvrir la Live Room"
+            title="Open Live Room"
           >
             {#if liveRoomLoading}
               <span class="spinner-sm"></span>
             {:else}
               <span class="live-room-icon">◫</span>
             {/if}
-            Voir la Live Room
+            Open Live Room
           </button>
           <button
             class="btn-live-room-share"
             onclick={handleShareLiveRoom}
             disabled={liveRoomSharing}
-            title="Partager le lien"
+            title="Share link"
           >
             {#if liveRoomSharing}
               <span class="spinner-sm"></span>
@@ -374,6 +366,11 @@
       {#if isStopped && store.state !== 'mock_synced' && store.state !== 'synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
+          {#if session?.knowledge_session_id}
+            <button class="btn btn-ghost btn-full" onclick={() => { artifactsPanelOpen = true; }}>
+              <span aria-hidden="true">▤</span> Open session content
+            </button>
+          {/if}
 
           <!-- Show sync button only if NOT streamed during recording -->
           {#if syncMode === 'local' || !session?.knowledge_session_id}
@@ -399,70 +396,16 @@
             </div>
           {/if}
 
-          {#if canOpenLiveRoom}
-            <div class="live-room-row">
-              <button
-                class="btn-live-room-inline"
-                onclick={handleOpenLiveRoom}
-                disabled={liveRoomLoading}
-              >
-                {#if liveRoomLoading}<span class="spinner-sm"></span>{:else}<span class="live-room-icon">◫</span>{/if}
-                Voir la Live Room
-              </button>
-              <button
-                class="btn-live-room-share"
-                onclick={handleShareLiveRoom}
-                disabled={liveRoomSharing}
-                title="Partager le lien"
-              >
-                {#if liveRoomSharing}<span class="spinner-sm"></span>
-                {:else if shareConfirm}✓
-                {:else}
-                  <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="2.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><circle cx="3" cy="7.5" r="1.5"/>
-                    <line x1="10.5" y1="3.4" x2="4.5" y2="6.6"/><line x1="10.5" y1="11.6" x2="4.5" y2="8.4"/>
-                  </svg>
-                {/if}
-              </button>
-            </div>
-            {#if shareConfirm}<p class="share-confirm">{shareConfirm}</p>{/if}
-            {#if liveRoomError}<p class="live-room-error">{liveRoomError}</p>{/if}
-          {/if}
-
           <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
         </div>
       {:else if store.state === 'mock_synced' || store.state === 'synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
           <div class="synced-msg"><span class="synced-check">✓</span>Envoyé à EigenVertex{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
-          {#if canOpenLiveRoom}
-            <div class="live-room-row">
-              <button
-                class="btn-live-room-inline"
-                onclick={handleOpenLiveRoom}
-                disabled={liveRoomLoading}
-              >
-                {#if liveRoomLoading}<span class="spinner-sm"></span>{:else}<span class="live-room-icon">◫</span>{/if}
-                Voir la Live Room
-              </button>
-              <button
-                class="btn-live-room-share"
-                onclick={handleShareLiveRoom}
-                disabled={liveRoomSharing}
-                title="Partager le lien"
-              >
-                {#if liveRoomSharing}<span class="spinner-sm"></span>
-                {:else if shareConfirm}✓
-                {:else}
-                  <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="2.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><circle cx="3" cy="7.5" r="1.5"/>
-                    <line x1="10.5" y1="3.4" x2="4.5" y2="6.6"/><line x1="10.5" y1="11.6" x2="4.5" y2="8.4"/>
-                  </svg>
-                {/if}
-              </button>
-            </div>
-            {#if shareConfirm}<p class="share-confirm">{shareConfirm}</p>{/if}
-            {#if liveRoomError}<p class="live-room-error">{liveRoomError}</p>{/if}
+          {#if session?.knowledge_session_id}
+            <button class="btn btn-ghost btn-full" onclick={() => { artifactsPanelOpen = true; }}>
+              <span aria-hidden="true">▤</span> Open session content
+            </button>
           {/if}
           <button class="btn btn-ghost btn-full" onclick={() => goto('/recorder')}>Back to sessions</button>
         </div>
@@ -694,7 +637,7 @@
     gap: 6px;
     width: 100%;
   }
-  /* Main "Voir la Live Room" button — grows to fill */
+  /* Main "Open Live Room" button — grows to fill */
   .btn-live-room-inline {
     flex: 1;
     display: flex;

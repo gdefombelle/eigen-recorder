@@ -1,7 +1,7 @@
 // Auth state — Svelte 4 writable store, aligned with scanner-app EVUser contract.
 // Drop-in compatible: same TOKEN_KEY, same EVUser shape, same helper functions.
 
-import { writable, get } from 'svelte/store';
+import { writable, get, derived } from 'svelte/store';
 
 const TOKEN_KEY = 'ev_token';
 
@@ -20,10 +20,41 @@ const _user = writable<EVUser | null>(null);
 // Reactive store — subscribe in components: $authStore
 export const authStore = { subscribe: _user.subscribe };
 
+// Bootstrap gate: false until initAuth() + the first silent refresh have settled.
+// The UI must distinguish "still restoring the session" from "logged out",
+// otherwise gates evaluated during startup lock out an authenticated user.
+const _authReady = writable(false);
+export const authReadyStore = { subscribe: _authReady.subscribe };
+export function setAuthReady(ready: boolean): void { _authReady.set(ready); }
+
+/**
+ * Reactive "a session exists" gate — use this for UI, not isAuthenticated().
+ *
+ * Deliberately does NOT test access-token expiry: an expired access token is
+ * renewed transparently by ensureFreshToken() before the next request, so
+ * gating UI on expiry makes it flap to "logged out" every 15 minutes.
+ */
+export const hasSessionStore = derived(_user, (u) => u !== null);
+
+/**
+ * Three-state auth gate for UI that offers a sign-in call to action.
+ *
+ * 'restoring' exists so a sign-in prompt is never shown while the session is
+ * still being recovered from the Keychain — that flash is what made the app
+ * look logged out to an authenticated user.
+ */
+export type AuthPhase = 'restoring' | 'authed' | 'anonymous';
+
+export const authPhaseStore = derived(
+  [_user, _authReady],
+  ([u, ready]): AuthPhase => (u !== null ? 'authed' : ready ? 'anonymous' : 'restoring'),
+);
+
 export function getUser(): EVUser | null {
   return get(_user);
 }
 
+/** Imperative check that the ACCESS token is currently live. For UI gating use hasSessionStore. */
 export function isAuthenticated(): boolean {
   const u = get(_user);
   return u !== null && Date.now() < u.expiresAt;
@@ -75,10 +106,11 @@ export function initAuth(): void {
     } catch {
       user = tokenToUser(raw); // legacy: raw JWT string
     }
-    if (user && Date.now() < user.expiresAt) {
-      _user.set(user);
-    } else {
-      localStorage.removeItem(TOKEN_KEY);
-    }
+    // Restore the session even when the access token has already expired: the
+    // Keychain refresh token can still renew it, and api.ts only attempts a
+    // refresh when a user is present (`if (!getUser()) return`). Dropping the
+    // user here is what silently forced a re-login on every cold start.
+    if (user) _user.set(user);
+    else localStorage.removeItem(TOKEN_KEY);
   } catch { /* ignore */ }
 }
