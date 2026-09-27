@@ -252,6 +252,25 @@ function noteRefresh(outcome: string): void {
   refreshDiagStore.set({ at: Date.now(), outcome });
 }
 
+/**
+ * One-shot Keychain health check for Settings › Diagnostics.
+ *
+ * The refresh path begins with a Keychain read, and a stalled bridge call there
+ * blocks every authenticated request behind it. This answers whether the
+ * Keychain responds at all, how fast, and whether a refresh token is stored —
+ * presence as a boolean and a duration, never the value or any part of it.
+ */
+export async function probeKeychain(): Promise<string> {
+  const started = Date.now();
+  try {
+    const value = await withTimeout(secureGet(STORAGE_KEY_REFRESH), 5_000, 'Keychain read');
+    const ms = Date.now() - started;
+    return value ? `refresh token present (${ms}ms)` : `NO refresh token (${ms}ms)`;
+  } catch (e) {
+    return `unreadable — ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
 // Hard ceiling on a whole refresh attempt, as a STRUCTURAL backstop.
 //
 // The single-flight guard below caches _refreshPromise and only clears it in
@@ -282,13 +301,28 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 
 export function silentRefresh(): Promise<EVUser | null> {
   // Keychain is irrecoverable — don't attempt network refresh (would replay consumed token).
-  if (_keychainBroken) return Promise.resolve(null);
+  if (_keychainBroken) {
+    noteRefresh('blocked — Keychain marked broken');
+    return Promise.resolve(null);
+  }
   if (_refreshPromise) return _refreshPromise;
+
+  // Marked BEFORE any await so "in progress…" is visible even if the attempt
+  // then stalls. This is what tells apart "silentRefresh was never reached"
+  // (diag still reads "not attempted yet") from "it started and died quietly".
+  noteRefresh('in progress…');
+
   _refreshPromise = withTimeout(_doSilentRefresh(), REFRESH_TOTAL_BUDGET_MS, 'silentRefresh')
     .catch((e: unknown) => {
       // A blown budget is transient, never a revocation: keep the session and
       // let the next call retry rather than signing a healthy user out.
-      console.warn('[PKCE] Refresh did not complete:', e instanceof Error ? e.message : String(e));
+      //
+      // The Keychain-read timeout inside _doSilentRefresh() lands HERE, outside
+      // its try/catch — so without this note the diagnostic would sit on
+      // "not attempted yet" forever while refreshes silently failed.
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn('[PKCE] Refresh did not complete:', msg);
+      noteRefresh(`did not complete — ${msg}`);
       return null;
     })
     .finally(() => { _refreshPromise = null; });

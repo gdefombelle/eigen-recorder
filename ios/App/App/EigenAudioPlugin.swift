@@ -25,6 +25,9 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getElapsedMs",      returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getMicLevel",       returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "mergeChunks",       returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "keychainGet",    returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "keychainSet",    returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "keychainRemove", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "dictationPermission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startDictation",      returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopDictation",       returnType: CAPPluginReturnPromise),
@@ -443,6 +446,94 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
                 try session.setPreferredInputOrientation(.portrait)
                 return
             }
+        }
+    }
+
+    // ── Keychain ───────────────────────────────────────────────────────────
+    //
+    // Direct Security-framework access, replacing capacitor-secure-storage-plugin:
+    // on device, its bridge call never returned (Settings › Diagnostics reported
+    // "Keychain read exceeded 5000ms"), which stalled every token refresh at its
+    // very first step and left sessions dying silently after 15 minutes.
+    //
+    // This plugin is compiled straight into the App target — the same path the
+    // audio and dictation methods already use in production — so it does not
+    // depend on SPM plugin discovery.
+    //
+    // kSecAttrAccessibleAfterFirstUnlock matches the accessibility the previous
+    // plugin used, so a background refresh still works on a locked device.
+
+    private let keychainService = "com.eigenvertex.recorder.secure"
+
+    private func keychainQuery(_ key: String) -> [String: Any] {
+        [
+            kSecClass as String:       kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: key,
+        ]
+    }
+
+    @objc func keychainGet(_ call: CAPPluginCall) {
+        guard let key = call.getString("key") else {
+            call.reject("key is required", "BAD_ARGS")
+            return
+        }
+        var query = keychainQuery(key)
+        query[kSecReturnData as String]  = true
+        query[kSecMatchLimit as String]  = kSecMatchLimitOne
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+
+        if status == errSecSuccess,
+           let data = item as? Data,
+           let value = String(data: data, encoding: .utf8) {
+            call.resolve(["value": value])
+        } else if status == errSecItemNotFound {
+            // Absence is a normal result, not a failure — resolve with null so
+            // callers can branch on it instead of having to catch.
+            call.resolve(["value": NSNull()])
+        } else {
+            call.reject("Keychain read failed", "OSStatus \(status)")
+        }
+    }
+
+    @objc func keychainSet(_ call: CAPPluginCall) {
+        guard let key = call.getString("key"), let value = call.getString("value") else {
+            call.reject("key and value are required", "BAD_ARGS")
+            return
+        }
+        guard let data = value.data(using: .utf8) else {
+            call.reject("value is not valid UTF-8", "BAD_ARGS")
+            return
+        }
+
+        // Delete-then-add: SecItemUpdate needs the item to exist, and an add
+        // over an existing item returns errSecDuplicateItem.
+        SecItemDelete(keychainQuery(key) as CFDictionary)
+
+        var attrs = keychainQuery(key)
+        attrs[kSecValueData as String]      = data
+        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+
+        let status = SecItemAdd(attrs as CFDictionary, nil)
+        if status == errSecSuccess {
+            call.resolve(["value": true])
+        } else {
+            call.reject("Keychain write failed", "OSStatus \(status)")
+        }
+    }
+
+    @objc func keychainRemove(_ call: CAPPluginCall) {
+        guard let key = call.getString("key") else {
+            call.reject("key is required", "BAD_ARGS")
+            return
+        }
+        let status = SecItemDelete(keychainQuery(key) as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound {
+            call.resolve(["value": true])
+        } else {
+            call.reject("Keychain delete failed", "OSStatus \(status)")
         }
     }
 

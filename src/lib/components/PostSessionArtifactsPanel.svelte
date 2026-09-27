@@ -33,6 +33,7 @@
   let minutes      = $state<KnowledgeSessionMinutes | null>(null);
   let artifacts    = $state<KnowledgeSessionArtifact[]>([]);
   let loading      = $state(true);
+  let loadTimedOut = $state(false);
   let roomError    = $state('');
   let reportError  = $state('');
   let artifactsError = $state('');
@@ -237,13 +238,33 @@
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
+  // Last-resort ceiling on the whole load. Every request below is already
+  // individually bounded, but this panel is where a stuck load is actually
+  // visible, and an endless spinner tells the user nothing and offers no way
+  // out. If the load has not finished by now, stop waiting and say so.
+  const LOAD_CEILING_MS = 25_000;
+
   async function loadAll() {
     loading = true; roomError = ''; reportError = ''; artifactsError = '';
-    const [sr, mr, ar] = await Promise.allSettled([
+    loadTimedOut = false;
+
+    const work = Promise.allSettled([
       getLiveState(sessionId),
       getKnowledgeSessionMinutes(sessionId),
       listKnowledgeSessionArtifacts(sessionId),
     ]);
+    const ceiling = new Promise<'timeout'>((resolve) =>
+      setTimeout(() => resolve('timeout'), LOAD_CEILING_MS),
+    );
+
+    const outcome = await Promise.race([work, ceiling]);
+    if (outcome === 'timeout') {
+      loadTimedOut = true;
+      loading = false;
+      return;
+    }
+
+    const [sr, mr, ar] = outcome;
     if (sr.status === 'fulfilled') liveState = sr.value; else roomError = extractError(sr.reason);
     if (mr.status === 'fulfilled') minutes = mr.value;   else reportError = extractError(mr.reason);
     if (ar.status === 'fulfilled') artifacts = ar.value; else artifactsError = extractError(ar.reason);
@@ -402,6 +423,13 @@
 
     {#if loading}
       <div class="ws-center" role="status" aria-live="polite"><span class="spinner"></span>Loading session content…</div>
+
+    {:else if loadTimedOut}
+      <div class="ws-err" role="alert">
+        <p>Session content did not load.</p>
+        <p class="ws-hint">The server did not respond in time. Check Settings › Diagnostics for the last refresh result.</p>
+        <button class="ws-retry" onclick={loadAll}>Retry</button>
+      </div>
 
     {:else if activeTab === 'room'}
       <!-- ── Live Room ── -->

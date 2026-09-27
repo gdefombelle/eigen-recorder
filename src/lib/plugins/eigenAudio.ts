@@ -45,6 +45,14 @@ export interface EigenAudioPlugin {
     path: string;
   }>;
 
+  // ── Keychain (iOS Security framework) ───────────────────────────────────
+  // Replaces capacitor-secure-storage-plugin on iOS, whose bridge call never
+  // returned on device and stalled every token refresh at its first step.
+  // Resolves { value: null } when the key is absent — absence is not an error.
+  keychainGet(options: { key: string }): Promise<{ value: string | null }>;
+  keychainSet(options: { key: string; value: string }): Promise<{ value: boolean }>;
+  keychainRemove(options: { key: string }): Promise<{ value: boolean }>;
+
   // ── Dictation (SFSpeechRecognizer) ──────────────────────────────────────
   // Runs through the native plugin, so it reuses the microphone permission the
   // app already holds. Only speech recognition needs its own authorization.

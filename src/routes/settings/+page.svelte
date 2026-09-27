@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { t, langStore, setLang, type Lang } from '$lib/i18n/index';
   import { authStore, clearUser, getUser } from '$lib/auth/auth';
-  import { pkceLogout, refreshDiagStore } from '$lib/auth/pkceFlow';
+  import { pkceLogout, refreshDiagStore, probeKeychain } from '$lib/auth/pkceFlow';
   import { getServerUrl, getDefaultServerUrl, isProxyMode, setServerUrl, resetServerUrl } from '$lib/auth/config';
   import { recorderStore } from '$lib/recorder/recorderStore';
   import { offlineStorage } from '$lib/recorder/offlineStorage';
@@ -57,8 +57,10 @@
     totalBytes   = await offlineStorage.getTotalStorageBytes();
     const all    = await offlineStorage.getAllSessions();
     sessionCount = all.length;
-
+    keychainState = await probeKeychain();
   });
+
+  let keychainState = 'checking…';
 
   // Date.now() is not reactive, so the token countdown would freeze at whatever
   // it read on mount — misleading precisely while you sit watching it wait for
@@ -336,6 +338,8 @@
           <span class="diag-key">Auth</span>       <span class="diag-val" class:online={authed} class:offline={!authed}>{authed ? '● Signed in' : '● Signed out'}</span>
           <span class="diag-key">Access token</span><span class="diag-val">{tokenState}</span>
           <span class="diag-key">Last refresh</span><span class="diag-val">{$refreshDiagStore ? $refreshDiagStore.outcome : 'not attempted yet'}</span>
+          <span class="diag-key">Keychain</span>  <span class="diag-val">{keychainState}</span>
+          <span class="diag-key">Build</span>      <span class="diag-val">{__BUILD_STAMP__}</span>
         </div>
       </section>
 
