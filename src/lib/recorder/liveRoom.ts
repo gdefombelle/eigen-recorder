@@ -157,3 +157,62 @@ export async function shareLiveRoom(
     return { url, method: 'clipboard' };
   }
 }
+
+export type ShareSessionContentResult =
+  | { kind: 'shared'; url: string; method: 'native_share' | 'clipboard' }
+  /** Backend has confirmed the content_url field/contract but not deployed it yet — see its doc comment. */
+  | { kind: 'unavailable' }
+  /** GET /live-state itself failed — auth, network, or the session doesn't exist. */
+  | { kind: 'error'; message: string };
+
+/**
+ * Share a link to the session's full Session Content workspace in Studio
+ * (Live Room, Report, Mind map, Insights, Chat — Studio's
+ * /meetings/{sessionId}/post-treatment route) — distinct from
+ * shareLiveRoom(), which shares the Live Room only.
+ *
+ * Works for a session in any state (recording, stopped, finalized/synced):
+ * it reads GET /live-state, which is documented as safe for all of them.
+ *
+ * Requires `content_url` on the live-state response. The field name and
+ * contract are confirmed, but the backend has not deployed it yet (see
+ * LiveStateResponse.content_url's doc comment). Until it ships, this always
+ * resolves to `{ kind: 'unavailable' }` — callers must show a clear "not
+ * available yet" message rather than falling back to shareLiveRoom's Live
+ * Room URL, which would send recipients to the wrong page. The URL is used
+ * exactly as returned — never constructed from the session id here.
+ *
+ * The recipient must sign in to Studio and hold access rights to the
+ * session; Studio enforces that, not Pocket.
+ *
+ * Uses the same native-share-first pattern as shareLiveRoom(): @capacitor/share
+ * (UIActivityViewController) on iOS, Clipboard API on web.
+ */
+export async function shareSessionContent(
+  knowledgeSessionId: string,
+  sessionTitle: string,
+): Promise<ShareSessionContentResult> {
+  let data: LiveStateResponse;
+  try {
+    data = await getLiveState(knowledgeSessionId);
+  } catch (e) {
+    return { kind: 'error', message: e instanceof Error ? e.message : 'Failed to load session.' };
+  }
+
+  const url = data.content_url;
+  if (!url) return { kind: 'unavailable' };
+
+  if (isNative()) {
+    const { Share } = await import('@capacitor/share');
+    await Share.share({
+      title:       `Session content — ${sessionTitle}`,
+      text:        `View the session content: ${sessionTitle}`,
+      url,
+      dialogTitle: 'Share session content',
+    });
+    return { kind: 'shared', url, method: 'native_share' };
+  } else {
+    await navigator.clipboard.writeText(url);
+    return { kind: 'shared', url, method: 'clipboard' };
+  }
+}

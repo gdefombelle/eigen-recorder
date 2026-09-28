@@ -368,6 +368,23 @@ export interface LiveStateResponse {
   status:               string;
   /** Studio Live Room URL — open this directly for "Open Live Room" on a finalized session. */
   view_url?:            string | null;
+  /**
+   * Studio Session Content URL — the full workspace (Live Room, Report, Mind
+   * map, Insights, Chat), distinct from `view_url` which is the Live Room only.
+   * Points at Studio's /meetings/{sessionId}/post-treatment route.
+   *
+   * PENDING BACKEND DEPLOYMENT (confirmed field name, not yet live): until the
+   * backend ships it, `shareSessionContent()` in liveRoom.ts returns
+   * `{ kind: 'unavailable' }` when this is absent, so Pocket never shares
+   * view_url (the Live Room) as a stand-in for the full workspace.
+   *
+   * Never construct this URL from the session id locally — GET /live-state is
+   * the single source of truth for it, exactly like every other Studio URL
+   * in this file. Studio itself gates access: an unauthenticated recipient, or
+   * one without rights to this session, must be sent to sign-in, never shown
+   * the content.
+   */
+  content_url?:         string | null;
   title?:               string | null;
   summary_text?:        string | null;
   transcript_segments?: TranscriptSegment[] | null;

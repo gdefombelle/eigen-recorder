@@ -7,7 +7,7 @@
   import { formatDuration, formatBytes, formatDate } from '$lib/recorder/utils';
   import ShareAudioButton from './ShareAudioButton.svelte';
   import SessionPlayer from './SessionPlayer.svelte';
-  import { openFinalizedSession, openLiveRoom } from '$lib/recorder/liveRoom';
+  import { openFinalizedSession, openLiveRoom, shareSessionContent } from '$lib/recorder/liveRoom';
   import PostSessionArtifactsPanel from './PostSessionArtifactsPanel.svelte';
 
   let {
@@ -120,6 +120,46 @@
   // ── Live Room ─────────────────────────────────────────────────
   let liveRoomLoadingId: string | null = $state(null); // local_session_id currently loading
   let liveRoomErrorId:   string | null = $state(null); // local_session_id with last error
+
+  // ── Share session content ────────────────────────────────────
+  let shareLoadingId: string | null = $state(null); // local_session_id currently sharing
+  let shareMessageId:  string | null = $state(null); // local_session_id with a message to show
+  let shareMessage:    string        = $state('');   // the message itself — success or error
+  let shareIsError:    boolean       = $state(false);
+
+  async function handleShareSessionContent(session: LocalKnowledgeSession, e: MouseEvent) {
+    e.stopPropagation();
+    openMenu = null;
+    if (!session.knowledge_session_id) return;
+    shareLoadingId = session.local_session_id;
+    shareMessageId = null;
+    shareMessage   = '';
+    shareIsError   = false;
+    try {
+      const result = await shareSessionContent(session.knowledge_session_id, session.title);
+      if (result.kind === 'shared') {
+        if (result.method === 'clipboard') {
+          shareMessageId = session.local_session_id;
+          shareMessage   = 'Link copied!';
+          setTimeout(() => { if (shareMessageId === session.local_session_id) shareMessageId = null; }, 2500);
+        }
+        // native_share: no message needed — the share sheet gives its own feedback
+      } else if (result.kind === 'unavailable') {
+        shareMessageId = session.local_session_id;
+        shareMessage   = 'Session content sharing isn\'t available yet.';
+      } else {
+        shareMessageId = session.local_session_id;
+        shareMessage   = result.message;
+        shareIsError   = true;
+      }
+    } catch (e) {
+      shareMessageId = session.local_session_id;
+      shareMessage   = e instanceof Error ? e.message : 'Failed to share.';
+      shareIsError   = true;
+    } finally {
+      shareLoadingId = null;
+    }
+  }
 
   async function handleOpenLiveRoom(session: LocalKnowledgeSession, e: MouseEvent) {
     e.stopPropagation();
@@ -383,6 +423,21 @@
                           <path d="M3 1.8h6l3 3V13H3z"/><path d="M9 1.8v3h3M5 8h5M5 10.5h5"/>
                         </svg>
                         Open session content
+                      </button>
+                      <button
+                        class="menu-item"
+                        role="menuitem"
+                        disabled={shareLoadingId === session.local_session_id}
+                        onclick={(e) => handleShareSessionContent(session, e)}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                          <circle cx="11.5" cy="3.5" r="1.7"/><circle cx="3.5" cy="7.5" r="1.7"/><circle cx="11.5" cy="11.5" r="1.7"/>
+                          <path d="M5.1 6.6 9.9 4.4M5.1 8.4l4.8 2.2"/>
+                        </svg>
+                        {#if shareLoadingId === session.local_session_id}<span class="spinner-sm"></span>Sharing…{:else}Share session content{/if}
+                        {#if shareMessageId === session.local_session_id}
+                          <span class="menu-hint" class:menu-hint-error={shareIsError}>{shareMessage}</span>
+                        {/if}
                       </button>
                       <button
                         class="menu-item menu-item-live-room"

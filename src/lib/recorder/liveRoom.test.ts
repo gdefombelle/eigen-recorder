@@ -9,13 +9,19 @@
  *   summary_text, transcript_segments, actions, participants, view_url
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
-vi.mock('$lib/platform', () => ({ isNative: () => false }));
+// Controllable per-test; defaults to web (false) so every existing test below
+// keeps its original assumption unless a test opts into native.
+let _native = false;
+vi.mock('$lib/platform', () => ({ isNative: () => _native }));
 vi.mock('./knowledgeSessionApi', () => ({
   createLiveShare: vi.fn(),
   getLiveState:    vi.fn(),
 }));
+
+const mockShareShare = vi.fn().mockResolvedValue(undefined);
+vi.mock('@capacitor/share', () => ({ Share: { share: (...args: unknown[]) => mockShareShare(...args) } }));
 
 import { createLiveShare, getLiveState } from './knowledgeSessionApi';
 import type { LiveStateResponse } from './knowledgeSessionApi';
@@ -23,6 +29,7 @@ import {
   getLiveShareUrl,
   getCachedLiveShareUrl,
   openFinalizedSession,
+  shareSessionContent,
   clearLiveShareCache,
 } from './liveRoom';
 
@@ -55,10 +62,12 @@ function makeLiveState(overrides?: Partial<LiveStateResponse>): LiveStateRespons
 afterEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  _native = false;
   clearLiveShareCache('ks-001');
   clearLiveShareCache('ks-no-cache');
   clearLiveShareCache('ks-live-state');
   clearLiveShareCache('ks-view-url');
+  clearLiveShareCache('ks-content');
 });
 
 // ── Cache hit ──────────────────────────────────────────────────────────────
@@ -189,5 +198,106 @@ describe('getCachedLiveShareUrl', () => {
     await getLiveShareUrl('ks-001');
 
     expect(getCachedLiveShareUrl('ks-001')).toBe('https://eigenvertex.com/rooms/xyz');
+  });
+});
+
+// ── shareSessionContent ──────────────────────────────────────────────────────
+//
+// content_url's name and contract are confirmed with the backend — it points
+// at Studio's /meetings/{sessionId}/post-treatment route, served absolute and
+// verbatim — but it is not deployed yet. These tests pin the contract on both
+// sides of that: without the field, the feature must announce itself as
+// unavailable rather than silently sharing shareLiveRoom's Live Room URL,
+// which would send recipients to the wrong page; once deployed, the
+// 'content_url present' tests below describe exactly the behavior that
+// activates, with no other Pocket change required.
+
+describe('shareSessionContent — content_url not deployed yet', () => {
+  it('returns unavailable when content_url is absent, for a live session', async () => {
+    mockGetLiveState.mockResolvedValueOnce(makeLiveState({ status: 'recording', content_url: null }));
+
+    const result = await shareSessionContent('ks-content', 'Sprint review');
+
+    expect(result.kind).toBe('unavailable');
+    expect(mockShareShare).not.toHaveBeenCalled();
+  });
+
+  it('returns unavailable for a stopped/synced session too — content_url is state-independent', async () => {
+    mockGetLiveState.mockResolvedValueOnce(makeLiveState({ status: 'finalized', content_url: undefined }));
+
+    const result = await shareSessionContent('ks-content', 'Sprint review');
+
+    expect(result.kind).toBe('unavailable');
+  });
+
+  it('never falls back to view_url when content_url is missing', async () => {
+    mockGetLiveState.mockResolvedValueOnce(makeLiveState({
+      content_url: null,
+      view_url:    'https://app.eigenvertex.com/rooms/live-room-only',
+    }));
+
+    const result = await shareSessionContent('ks-content', 'Sprint review');
+
+    expect(result.kind).toBe('unavailable');
+    if (result.kind !== 'unavailable') return;
+    expect(JSON.stringify(result)).not.toContain('live-room-only');
+  });
+});
+
+describe('shareSessionContent — content_url present (once backend deploys it)', () => {
+  it('shares content_url via native share on iOS, not view_url', async () => {
+    _native = true;
+    mockGetLiveState.mockResolvedValueOnce(makeLiveState({
+      content_url: 'https://app.eigenvertex.com/meetings/ks-content/post-treatment',
+      view_url:    'https://app.eigenvertex.com/rooms/live-room-only',
+    }));
+
+    const result = await shareSessionContent('ks-content', 'Sprint review');
+
+    expect(result).toEqual({
+      kind:   'shared',
+      url:    'https://app.eigenvertex.com/meetings/ks-content/post-treatment',
+      method: 'native_share',
+    });
+    expect(mockShareShare).toHaveBeenCalledWith(
+      expect.objectContaining({ url: 'https://app.eigenvertex.com/meetings/ks-content/post-treatment' }),
+    );
+  });
+
+  it('copies content_url to the clipboard on web', async () => {
+    const clipboardSpy = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText: clipboardSpy } });
+    mockGetLiveState.mockResolvedValueOnce(makeLiveState({
+      content_url: 'https://app.eigenvertex.com/meetings/ks-content/post-treatment',
+    }));
+
+    const result = await shareSessionContent('ks-content', 'Sprint review');
+
+    expect(result.kind).toBe('shared');
+    expect(clipboardSpy).toHaveBeenCalledWith('https://app.eigenvertex.com/meetings/ks-content/post-treatment');
+    expect(mockShareShare).not.toHaveBeenCalled();
+  });
+
+  it('works for a finalized/synced session, not just a live one', async () => {
+    mockGetLiveState.mockResolvedValueOnce(makeLiveState({
+      status:      'finalized',
+      content_url: 'https://app.eigenvertex.com/meetings/ks-content/post-treatment',
+    }));
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+
+    const result = await shareSessionContent('ks-content', 'Sprint review');
+
+    expect(result.kind).toBe('shared');
+  });
+});
+
+describe('shareSessionContent — errors', () => {
+  it('returns a readable error when GET /live-state fails (e.g. unauthenticated)', async () => {
+    mockGetLiveState.mockRejectedValueOnce(new Error('401 Unauthorized'));
+
+    const result = await shareSessionContent('ks-content', 'Sprint review');
+
+    expect(result).toEqual({ kind: 'error', message: '401 Unauthorized' });
+    expect(mockShareShare).not.toHaveBeenCalled();
   });
 });
