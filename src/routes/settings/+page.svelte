@@ -6,7 +6,7 @@
   import { pkceLogout, refreshDiagStore, probeKeychain } from '$lib/auth/pkceFlow';
   import { getServerUrl, getDefaultServerUrl, isProxyMode, setServerUrl, resetServerUrl } from '$lib/auth/config';
   import { recorderStore } from '$lib/recorder/recorderStore';
-  import { offlineStorage } from '$lib/recorder/offlineStorage';
+  import { offlineStorage, dbReopenCount } from '$lib/recorder/offlineStorage';
   import { getSupportedMimeType, isSafariLimited } from '$lib/recorder/audioRecorder';
   import { getBrowserName, isIOS, formatBytes } from '$lib/recorder/utils';
   import { audioEngineStore, setAudioEngine } from '$lib/recorder/audioEngine';
@@ -52,15 +52,32 @@
   const SAFARI_LTD = typeof navigator !== 'undefined' ? isSafariLimited() : false;
   const IS_NATIVE  = typeof window    !== 'undefined' ? isNative() : false;
 
-  onMount(async () => {
-    urlInput     = isProxyMode() ? '' : getServerUrl();
-    totalBytes   = await offlineStorage.getTotalStorageBytes();
-    const all    = await offlineStorage.getAllSessions();
-    sessionCount = all.length;
-    keychainState = await probeKeychain();
-  });
-
   let keychainState = 'checking…';
+  let idbState      = 'checking…';
+
+  onMount(() => {
+    urlInput = isProxyMode() ? '' : getServerUrl();
+
+    // Each probe is independent. They used to run in ONE async chain, so when
+    // IndexedDB failed the Keychain probe never ran and sat on "checking…" —
+    // a diagnostic that goes dark exactly when something is wrong.
+    void probeKeychain().then((s) => { keychainState = s; });
+
+    void (async () => {
+      const started = Date.now();
+      const reopenedBefore = dbReopenCount();
+      try {
+        totalBytes   = await offlineStorage.getTotalStorageBytes();
+        const all    = await offlineStorage.getAllSessions();
+        sessionCount = all.length;
+        const ms = Date.now() - started;
+        const reopened = dbReopenCount() - reopenedBefore;
+        idbState = reopened > 0 ? `recovered — connection reopened (${ms}ms)` : `ok (${ms}ms)`;
+      } catch (e) {
+        idbState = `error — ${e instanceof Error ? e.message : String(e)}`;
+      }
+    })();
+  });
 
   // Date.now() is not reactive, so the token countdown would freeze at whatever
   // it read on mount — misleading precisely while you sit watching it wait for
@@ -100,7 +117,7 @@
   }
 
   async function signOut() {
-    await pkceLogout(); // revokes refresh token + clears secure storage
+    await pkceLogout(); // revokes the refresh-token family server-side (best-effort) + clears secure storage
   }
 
   async function clearAllData() {
@@ -334,7 +351,7 @@
           <span class="diag-key">Network</span>   <span class="diag-val" class:online={store.isOnline} class:offline={!store.isOnline}>{store.isOnline ? '● Online' : '● Offline'}</span>
           <span class="diag-key">Audio MIME</span><span class="diag-val">{MIME_TYPE || '⚠ none'}</span>
           <span class="diag-key">MediaRecorder</span><span class="diag-val">{typeof MediaRecorder !== 'undefined' ? '✓' : '✗'}</span>
-          <span class="diag-key">IndexedDB</span> <span class="diag-val">{typeof indexedDB !== 'undefined' ? '✓' : '✗'}</span>
+          <span class="diag-key">IndexedDB</span> <span class="diag-val">{typeof indexedDB === 'undefined' ? '✗ unavailable' : idbState}</span>
           <span class="diag-key">Auth</span>       <span class="diag-val" class:online={authed} class:offline={!authed}>{authed ? '● Signed in' : '● Signed out'}</span>
           <span class="diag-key">Access token</span><span class="diag-val">{tokenState}</span>
           <span class="diag-key">Last refresh</span><span class="diag-val">{$refreshDiagStore ? $refreshDiagStore.outcome : 'not attempted yet'}</span>

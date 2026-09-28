@@ -27,12 +27,16 @@ interface EigenMeetingDB extends DBSchema {
 const DB_NAME    = 'eigen-recorder';
 const DB_VERSION = 1;
 
-let _db: IDBPDatabase<EigenMeetingDB> | null = null;
+// The connection is cached as a PROMISE, not a resolved handle, so concurrent
+// first callers share one openDB() instead of each opening their own.
+let _dbPromise: Promise<IDBPDatabase<EigenMeetingDB>> | null = null;
+let _reopenCount = 0;
 
-async function getDb(): Promise<IDBPDatabase<EigenMeetingDB>> {
-  if (_db) return _db;
+/** How many times a dead connection was replaced this app session (diagnostics). */
+export function dbReopenCount(): number { return _reopenCount; }
 
-  _db = await openDB<EigenMeetingDB>(DB_NAME, DB_VERSION, {
+function openConnection(): Promise<IDBPDatabase<EigenMeetingDB>> {
+  return openDB<EigenMeetingDB>(DB_NAME, DB_VERSION, {
     upgrade(db) {
       const sessions = db.createObjectStore('sessions', { keyPath: 'local_session_id' });
       sessions.createIndex('by-status', 'status');
@@ -46,46 +50,95 @@ async function getDb(): Promise<IDBPDatabase<EigenMeetingDB>> {
       console.warn('[EigenMeeting] IndexedDB blocked — another tab may have an older version open.');
     },
     blocking() {
-      _db?.close();
-      _db = null;
+      dropConnection();
+    },
+    // The browser closed the connection on its own — on iOS, WebKit does this
+    // when the app has been suspended for a while. Without this the cached
+    // handle stays dead and every later access throws until a full app restart.
+    terminated() {
+      _dbPromise = null;
     },
   });
+}
 
-  return _db;
+function getDb(): Promise<IDBPDatabase<EigenMeetingDB>> {
+  if (!_dbPromise) {
+    _dbPromise = openConnection().catch((e) => {
+      _dbPromise = null; // a failed open must not poison every later call
+      throw e;
+    });
+  }
+  return _dbPromise;
+}
+
+function dropConnection(): void {
+  const stale = _dbPromise;
+  _dbPromise = null;
+  stale?.then((db) => db.close()).catch(() => { /* already gone */ });
+}
+
+/**
+ * WebKit reports a connection it has closed as InvalidStateError ("The database
+ * connection is closing") — and it does not reliably fire the `close` event
+ * first, so terminated() alone can't be trusted to have cleared the cache.
+ */
+function isStaleConnection(e: unknown): boolean {
+  const err = e as { name?: string; message?: string } | null;
+  return err?.name === 'InvalidStateError'
+    || /database connection is closing/i.test(err?.message ?? '');
+}
+
+/**
+ * Run a database operation, reopening the connection once if the browser has
+ * closed it underneath us.
+ *
+ * Retrying is safe: this error is raised when the transaction cannot even be
+ * created, so nothing has been written yet. That matters for saveChunk() —
+ * losing recorded audio to a dead handle is the failure worth guarding.
+ * Any other error is thrown as-is.
+ */
+async function withDb<T>(run: (db: IDBPDatabase<EigenMeetingDB>) => Promise<T>): Promise<T> {
+  try {
+    return await run(await getDb());
+  } catch (e) {
+    if (!isStaleConnection(e)) throw e;
+    console.warn('[EigenMeeting] IndexedDB connection was closed by the OS — reopening.');
+    _reopenCount++;
+    dropConnection();
+    return await run(await getDb());
+  }
 }
 
 export const offlineStorage = {
   // ── Sessions ──────────────────────────────────────────────
 
   async saveSession(session: LocalKnowledgeSession): Promise<void> {
-    const db = await getDb();
-    await db.put('sessions', session);
+    await withDb((db) => db.put('sessions', session));
   },
 
   async getSession(id: string): Promise<LocalKnowledgeSession | undefined> {
-    const db = await getDb();
-    return db.get('sessions', id);
+    return withDb((db) => db.get('sessions', id));
   },
 
   async getAllSessions(): Promise<LocalKnowledgeSession[]> {
-    const db = await getDb();
-    const sessions = await db.getAll('sessions');
+    const sessions = await withDb((db) => db.getAll('sessions'));
     return sessions.sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
   },
 
   async deleteSession(sessionId: string): Promise<void> {
-    const db = await getDb();
     const chunks = await this.getChunksMeta(sessionId);
 
-    const tx = db.transaction(['sessions', 'chunks_meta', 'chunks_data'], 'readwrite');
-    await tx.objectStore('sessions').delete(sessionId);
-    for (const c of chunks) {
-      await tx.objectStore('chunks_meta').delete(c.local_chunk_id);
-      await tx.objectStore('chunks_data').delete(c.local_chunk_id);
-    }
-    await tx.done;
+    await withDb(async (db) => {
+      const tx = db.transaction(['sessions', 'chunks_meta', 'chunks_data'], 'readwrite');
+      await tx.objectStore('sessions').delete(sessionId);
+      for (const c of chunks) {
+        await tx.objectStore('chunks_meta').delete(c.local_chunk_id);
+        await tx.objectStore('chunks_data').delete(c.local_chunk_id);
+      }
+      await tx.done;
+    });
   },
 
   /**
@@ -97,34 +150,34 @@ export const offlineStorage = {
    * `getChunkBlob` will return undefined after purge — callers must handle that.
    */
   async purgeAudio(sessionId: string): Promise<void> {
-    const db = await getDb();
     const chunks = await this.getChunksMeta(sessionId);
-    const tx = db.transaction(['chunks_data'], 'readwrite');
-    for (const c of chunks) {
-      await tx.objectStore('chunks_data').delete(c.local_chunk_id);
-    }
-    await tx.done;
+    await withDb(async (db) => {
+      const tx = db.transaction(['chunks_data'], 'readwrite');
+      for (const c of chunks) {
+        await tx.objectStore('chunks_data').delete(c.local_chunk_id);
+      }
+      await tx.done;
+    });
   },
 
   // ── Chunks ────────────────────────────────────────────────
 
   async saveChunk(meta: AudioChunkMetadata, blob: Blob): Promise<void> {
-    const db = await getDb();
-    const tx = db.transaction(['chunks_meta', 'chunks_data'], 'readwrite');
-    await tx.objectStore('chunks_meta').put(meta);
-    await tx.objectStore('chunks_data').put({ local_chunk_id: meta.local_chunk_id, blob });
-    await tx.done;
+    await withDb(async (db) => {
+      const tx = db.transaction(['chunks_meta', 'chunks_data'], 'readwrite');
+      await tx.objectStore('chunks_meta').put(meta);
+      await tx.objectStore('chunks_data').put({ local_chunk_id: meta.local_chunk_id, blob });
+      await tx.done;
+    });
   },
 
   async getChunksMeta(sessionId: string): Promise<AudioChunkMetadata[]> {
-    const db = await getDb();
-    const chunks = await db.getAllFromIndex('chunks_meta', 'by-session', sessionId);
+    const chunks = await withDb((db) => db.getAllFromIndex('chunks_meta', 'by-session', sessionId));
     return chunks.sort((a, b) => a.chunk_index - b.chunk_index);
   },
 
   async getChunkBlob(chunkId: string): Promise<Blob | undefined> {
-    const db = await getDb();
-    const data = await db.get('chunks_data', chunkId);
+    const data = await withDb((db) => db.get('chunks_data', chunkId));
     return data?.blob;
   },
 
@@ -133,15 +186,16 @@ export const offlineStorage = {
     status: AudioChunkStatus,
     uploadedAt?: string
   ): Promise<void> {
-    const db = await getDb();
-    const chunk = await db.get('chunks_meta', chunkId);
-    if (chunk) {
-      await db.put('chunks_meta', {
-        ...chunk,
-        status,
-        uploaded_at: uploadedAt ?? null,
-      });
-    }
+    await withDb(async (db) => {
+      const chunk = await db.get('chunks_meta', chunkId);
+      if (chunk) {
+        await db.put('chunks_meta', {
+          ...chunk,
+          status,
+          uploaded_at: uploadedAt ?? null,
+        });
+      }
+    });
   },
 
   // ── Storage stats ─────────────────────────────────────────
@@ -155,8 +209,7 @@ export const offlineStorage = {
   },
 
   async getTotalStorageBytes(): Promise<number> {
-    const db = await getDb();
-    const all = await db.getAll('chunks_meta');
+    const all = await withDb((db) => db.getAll('chunks_meta'));
     return all.reduce((acc, c) => acc + c.size_bytes, 0);
   },
 

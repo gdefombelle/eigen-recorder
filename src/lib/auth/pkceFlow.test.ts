@@ -58,6 +58,12 @@ function makeFetchOk(body: object) {
 beforeEach(() => {
   _mockUser = null;
   vi.clearAllMocks();
+  // clearAllMocks() does NOT undo mockReturnValue()/mockImplementation(): a few
+  // tests below pin getUser() to a fixed value, and that override would leak
+  // into every later test, making getUser() ignore setUser() for the rest of
+  // the file. Restore the live behaviour explicitly.
+  mockGetUser.mockReset();
+  mockGetUser.mockImplementation(() => _mockUser);
   _resetForTests(); // reset _keychainBroken flag and keychainErrorStore between tests
 });
 
@@ -390,12 +396,11 @@ describe('silentRefresh — stalled token endpoint', () => {
     await vi.advanceTimersByTimeAsync(20_000);
     const result = await pending;
 
-    // Assert on the mocks directly rather than round-tripping through the
-    // shared `getUser()`/`setUser()` closure: under fake timers, reading
-    // mutable cross-test state that way is exactly the kind of thing that
-    // produces flaky order-dependent failures. clearUser() is the one
-    // operation that would actually end the session — its call count is the
-    // unambiguous signal.
+    // clearUser() is the one operation that would actually end the session, so
+    // its call count is the direct signal. (An earlier version asserted on
+    // getUser() instead and failed here; that was blamed on fake timers, but the
+    // real cause was an earlier test's mockReturnValue(null) leaking — now
+    // reset in beforeEach.)
     expect(result).toBeNull();
     expect(mockSecureRemove).not.toHaveBeenCalled();
     expect(mockClearUser).not.toHaveBeenCalled();
@@ -428,5 +433,107 @@ describe('silentRefresh — stalled token endpoint', () => {
     const second = await silentRefresh();
 
     expect(second?.token).toBe('evtxa_recovered');
+  });
+});
+
+// ── Logout: server-side revoke must actually authenticate ───────────────────
+//
+// POST /auth/oauth/revoke authenticates the caller (backend:
+// _require_session_user_id). It was sent with no Authorization header, so the
+// gateway answered 401 "API key missing" every time and a swallowed .catch hid
+// it: logout wiped the local tokens but the refresh token stayed valid on the
+// server. Settings even carried a comment claiming it "revokes refresh token".
+
+import { pkceLogout } from './pkceFlow';
+
+function revokeCalls(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.filter(([url]) => String(url).includes('/auth/oauth/revoke'));
+}
+
+function headerOf(call: unknown[], name: string): string | undefined {
+  const init = (call[1] ?? {}) as { headers?: unknown };
+  const h = init.headers as Record<string, string> | Headers | undefined;
+  if (!h) return undefined;
+  if (typeof (h as Headers).get === 'function') return (h as Headers).get(name) ?? undefined;
+  const entry = Object.entries(h as Record<string, string>).find(([k]) => k.toLowerCase() === name.toLowerCase());
+  return entry?.[1];
+}
+
+describe('pkceLogout — server-side revoke', () => {
+  const user: EVUser = {
+    email: 'u@t.com', name: undefined,
+    token: 'evtxa_current', expiresAt: Date.now() + 600_000, refreshToken: 'evtxr_current',
+  };
+
+  function okFetch() {
+    return vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ status: 'revoked' }),
+      text: () => Promise.resolve('{"status":"revoked"}'),
+    });
+  }
+
+  it('sends the caller\'s access token as a Bearer credential', async () => {
+    setUser(user);
+    mockSecureGet.mockResolvedValue('family-1');
+    mockSecureRemove.mockResolvedValue(undefined);
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await pkceLogout();
+    await vi.waitFor(() => expect(revokeCalls(fetchMock).length).toBe(1));
+
+    expect(headerOf(revokeCalls(fetchMock)[0], 'authorization')).toBe('Bearer evtxa_current');
+  });
+
+  it('does not attempt a revoke it knows will fail when there is no access token', async () => {
+    _mockUser = null;
+    mockSecureGet.mockResolvedValue('family-1');
+    mockSecureRemove.mockResolvedValue(undefined);
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await pkceLogout();
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(revokeCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it('skips the revoke when the server already rejected the refresh token', async () => {
+    setUser(user);
+    mockSecureGet.mockResolvedValue('family-1');
+    mockSecureRemove.mockResolvedValue(undefined);
+    const fetchMock = okFetch();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await pkceLogout({ revokeOnServer: false });
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(revokeCalls(fetchMock)).toHaveLength(0);
+    expect(mockClearUser).toHaveBeenCalled();
+  });
+
+  it('STILL signs out when the Keychain read throws — logout must never be blockable', async () => {
+    setUser(user);
+    mockSecureGet.mockRejectedValue(new Error('OSStatus -25308'));
+    mockSecureRemove.mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', okFetch());
+
+    await expect(pkceLogout()).resolves.toBeUndefined();
+
+    expect(mockSecureRemove).toHaveBeenCalled();
+    expect(mockClearUser).toHaveBeenCalled();
+  });
+
+  it('STILL signs out when the revoke request fails', async () => {
+    setUser(user);
+    mockSecureGet.mockResolvedValue('family-1');
+    mockSecureRemove.mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    await pkceLogout();
+
+    expect(mockClearUser).toHaveBeenCalled();
   });
 });

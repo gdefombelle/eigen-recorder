@@ -118,13 +118,17 @@ const TOKEN_REQUEST_TIMEOUT_MS = 20_000;
  * during the Safari→app transition (ProcessSuspension / markAllLayersVolatile),
  * causing any fetch() in that window to hang forever. CapacitorHttp is unaffected.
  */
-async function nativePost<T>(path: string, body: Record<string, string>): Promise<T> {
+async function nativePost<T>(
+  path: string,
+  body: Record<string, string>,
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
   const { CapacitorHttp } = await import('@capacitor/core');
   const url = `${getDirectApiBase()}${path}`;
   console.log('[PKCE] nativePost →', url);
   const res = await CapacitorHttp.post({
     url,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
     data: body,
     connectTimeout: TOKEN_REQUEST_TIMEOUT_MS,
     readTimeout:    TOKEN_REQUEST_TIMEOUT_MS,
@@ -414,7 +418,7 @@ async function _doSilentRefresh(): Promise<EVUser | null> {
     if (status === 401 || status === 403) {
       console.warn(`[PKCE] Refresh rejected (HTTP ${status}) — clearing session.`);
       noteRefresh(`revoked (HTTP ${status}) — session cleared`);
-      await pkceLogout();
+      await pkceLogout({ revokeOnServer: false });
     } else {
       noteRefresh(status ? `failed (HTTP ${status}) — session kept` : 'network failure — session kept');
     }
@@ -470,14 +474,49 @@ export function startAuthLifecycle(): () => void {
 
 // ── Logout ────────────────────────────────────────────────────────────────────
 
-export async function pkceLogout(): Promise<void> {
+/**
+ * Sign out: revoke the refresh-token family server-side, then wipe local state.
+ *
+ * POST /auth/oauth/revoke authenticates the CALLER (the backend calls
+ * _require_session_user_id and checks the family belongs to that user). This
+ * used to send no Authorization header at all, so the gateway answered 401
+ * "API key missing" every time and the `.catch(() => {})` hid it: logout wiped
+ * the local tokens but the refresh token stayed valid on the server for weeks.
+ *
+ * `revokeOnServer: false` is for the path where the server has already
+ * rejected the refresh token (401/403) — its family is dead, revoking is moot.
+ *
+ * Local wipe ALWAYS happens, whatever the Keychain or the network do: a
+ * failure to read or revoke must never leave the user unable to sign out.
+ */
+export async function pkceLogout(opts: { revokeOnServer?: boolean } = {}): Promise<void> {
+  const { revokeOnServer = true } = opts;
   _keychainBroken = false;
   keychainErrorStore.set(null);
-  const familyId = await secureGet(STORAGE_KEY_FAMILY);
-  // Best-effort revoke — do not block logout on network errors
-  if (familyId) {
-    nativePost('/auth/oauth/revoke', { rotation_family_id: familyId }).catch(() => {/* ignore */});
+
+  // Read BEFORE clearUser() below — it is the credential the endpoint needs.
+  const accessToken = getUser()?.token;
+
+  let familyId: string | null = null;
+  try {
+    familyId = await withTimeout(secureGet(STORAGE_KEY_FAMILY), TOKEN_REQUEST_TIMEOUT_MS, 'Keychain read');
+  } catch (e) {
+    console.warn('[PKCE] Could not read rotation family for revoke:', e instanceof Error ? e.message : String(e));
   }
+
+  // Best-effort and non-blocking: signing out must not wait on the network.
+  if (revokeOnServer && familyId && accessToken) {
+    nativePost(
+      '/auth/oauth/revoke',
+      { rotation_family_id: familyId },
+      { Authorization: `Bearer ${accessToken}` },
+    ).catch((e: unknown) => {
+      // Status only — never a token, a prefix, or the family id.
+      const status = (e as { status?: number })?.status;
+      console.warn(`[PKCE] Server-side revoke failed${status ? ` (HTTP ${status})` : ''} — refresh token may remain valid until it expires.`);
+    });
+  }
+
   await Promise.allSettled([
     secureRemove(STORAGE_KEY_REFRESH),
     secureRemove(STORAGE_KEY_FAMILY),
