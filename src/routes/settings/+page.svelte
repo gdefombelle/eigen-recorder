@@ -376,7 +376,7 @@
       <!-- Footer -->
       <div class="version-footer">
         <div class="ev-brand"><span class="ev-dot"></span>EIGENVERTEX</div>
-        <div class="version-str">Eigen Pocket v0.1.0</div>
+        <div class="version-str">Eigen Pocket v0.1.0 <span class="version-by">by EigenVertex</span></div>
       </div>
 
     </div>
@@ -698,4 +698,5 @@
   }
   .ev-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ev-blue); }
   .version-str { font-size: 0.7rem; color: rgba(255,255,255,0.25); }
+  .version-by  { font-size: 0.6rem; color: rgba(255,255,255,0.18); }
 </style>
