@@ -46,8 +46,13 @@ export class NativeAudioRecorder {
 
   // ── Pause / Resume ──────────────────────────────────────────
 
-  pause(): void  { EigenAudio.pauseRecording().catch(() => {}); }
-  resume(): void { EigenAudio.resumeRecording().catch(() => {}); }
+  // Both throw on failure — callers must not assume success just because the
+  // call was made. resumeRecording() used to resolve even when the native
+  // AVAudioRecorder silently declined to restart (e.g. after iOS tore down
+  // the audio session during an interruption), leaving the UI showing
+  // "recording" with the mic doing nothing.
+  async pause():  Promise<void> { await EigenAudio.pauseRecording(); }
+  async resume(): Promise<void> { await EigenAudio.resumeRecording(); }
 
   // ── Stop ────────────────────────────────────────────────────
   // Fetches each .caf chunk file as a Blob and fires onChunk callbacks

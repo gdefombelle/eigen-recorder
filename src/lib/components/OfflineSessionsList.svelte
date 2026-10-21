@@ -236,8 +236,11 @@
   // (same rule as the "Sync to EigenVertex" button on the recorder screen).
   const UNSYNCED = new Set(['recording_offline', 'stopped_local', 'paused', 'mock_uploading', 'error']);
   function isSyncable(s: LocalKnowledgeSession): boolean {
+    // Never sent (no backend session), or a flush that got created server-side but
+    // did not finish (e.g. /stop timed out): both can be (re)synced safely.
+    const halfFlushed = !!(s.knowledge_session_id && s.device_id && s.metadata?.recorded_offline);
     return UNSYNCED.has(s.status)
-      && !s.knowledge_session_id
+      && (!s.knowledge_session_id || halfFlushed)
       && (statsBySession[s.local_session_id]?.chunkCount ?? 0) > 0;
   }
 

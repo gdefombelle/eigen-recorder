@@ -29,6 +29,7 @@
   let isStopped   = $derived(store.state === 'stopped_local' || store.state === 'synced' || store.state === 'mock_synced');
   let isStopping  = $derived(store.state === 'stopping');
   let isUploading = $derived(store.state === 'mock_uploading');
+  let isFr        = $derived($langStore === 'fr');
   let hasError    = $derived(store.state === 'error');
 
   let safariLimited = $derived(isSafariLimited());
@@ -83,8 +84,8 @@
     await recorderStore.startRecording();
   }
 
-  function handlePause()  { recorderStore.pauseRecording(); }
-  function handleResume() { recorderStore.resumeRecording(); }
+  async function handlePause()  { await recorderStore.pauseRecording(); }
+  async function handleResume() { await recorderStore.resumeRecording(); }
 
   async function handleStop() {
     await recorderStore.stopRecording();
@@ -401,7 +402,7 @@
       {:else if store.state === 'mock_synced' || store.state === 'synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
-          <div class="synced-msg"><span class="synced-check">✓</span>Envoyé à EigenVertex{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
+          <div class="synced-msg"><span class="synced-check">✓</span>{isFr ? 'Envoyé à EigenVertex' : 'Synced to EigenVertex'}{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
           {#if session?.knowledge_session_id}
             <button class="btn btn-ghost btn-full" onclick={() => { artifactsPanelOpen = true; }}>
               <span aria-hidden="true">▤</span> Open session content

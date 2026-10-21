@@ -211,11 +211,32 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func resumeRecording(_ call: CAPPluginCall) {
         guard isPaused else { call.resolve(); return }
+        guard let recorder else {
+            call.reject("No active recorder to resume.", "NO_RECORDER")
+            return
+        }
+
+        // A pause can outlast an iOS audio-session interruption (call, Siri, another
+        // app, or the OS reclaiming the session in the background) with no signal to
+        // this plugin. Reactivating before record() is the only way resume can succeed
+        // in that case; without it record() silently returns false and recording never
+        // actually continues even though the call used to resolve as if it had.
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            call.reject("Could not reactivate the audio session.", "SESSION_REACTIVATE_FAILED", error)
+            return
+        }
+
+        guard recorder.record() else {
+            call.reject("The system declined to resume recording.", "RECORD_FAILED")
+            return
+        }
+
         if let ps = pauseStartDate {
             pausedAccumMs += Date().timeIntervalSince(ps) * 1000
         }
         isPaused = false
-        recorder?.record()
         currentChunkStart = elapsedMs()
 
         DispatchQueue.main.async { [weak self] in

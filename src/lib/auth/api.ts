@@ -28,9 +28,9 @@ interface RawResponse {
   json(): Promise<unknown>;
 }
 
-async function timedFetch(url: string, init: RequestInit): Promise<RawResponse> {
+async function timedFetch(url: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<RawResponse> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { ...init, signal: controller.signal });
     return { status: res.status, json: () => res.json() };
@@ -44,6 +44,7 @@ async function nativeHttp(
   method: string,
   headers: Record<string, string>,
   body: string | undefined,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<RawResponse> {
   const { CapacitorHttp } = await import('@capacitor/core');
   const res = await CapacitorHttp.request({
@@ -53,8 +54,8 @@ async function nativeHttp(
     // CapacitorHttp serializes an object as JSON; a pre-stringified body must
     // be parsed back so it isn't sent as a double-encoded JSON string.
     data: body !== undefined ? JSON.parse(body) : undefined,
-    connectTimeout: REQUEST_TIMEOUT_MS,
-    readTimeout:    REQUEST_TIMEOUT_MS,
+    connectTimeout: timeoutMs,
+    readTimeout:    timeoutMs,
   });
   return { status: res.status, json: () => Promise.resolve(res.data) };
 }
@@ -65,11 +66,12 @@ async function transportRequest(
   opts: RequestInit,
   headers: Record<string, string>,
   isFormData: boolean,
+  timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<RawResponse> {
   if (isNative() && !isFormData) {
-    return nativeHttp(url, opts.method ?? 'GET', headers, opts.body as string | undefined);
+    return nativeHttp(url, opts.method ?? 'GET', headers, opts.body as string | undefined, timeoutMs);
   }
-  return timedFetch(url, { ...opts, headers });
+  return timedFetch(url, { ...opts, headers }, timeoutMs);
 }
 
 // Lazy imports avoid circular dep (pkceFlow → api → pkceFlow)
@@ -111,7 +113,8 @@ export class ApiError extends Error {
 export async function request<T>(
   path: string,
   opts: RequestInit = {},
-  skipAuth = false
+  skipAuth = false,
+  timeoutMs?: number,   // per-call override (default 20 s) — e.g. /stop can take longer under load
 ): Promise<T> {
   if (!skipAuth) await tryEnsureFresh();
 
@@ -133,7 +136,7 @@ export async function request<T>(
   const url = `${getApiBase()}${path}`;
   let res: RawResponse;
   try {
-    res = await transportRequest(url, opts, headers, isFormData);
+    res = await transportRequest(url, opts, headers, isFormData, timeoutMs);
   } catch (e) {
     // AbortError (our timeout) and network failures land here identically —
     // both mean "the request didn't complete," both are safe to retry.
@@ -153,7 +156,7 @@ export async function request<T>(
         };
         let retryRes: RawResponse;
         try {
-          retryRes = await transportRequest(url, opts, retryHeaders, isFormData);
+          retryRes = await transportRequest(url, opts, retryHeaders, isFormData, timeoutMs);
         } catch (e) {
           throw new ApiError(0, describeTransportFailure(e), true);
         }
@@ -187,7 +190,10 @@ export async function request<T>(
 }
 
 function describeTransportFailure(e: unknown): string {
-  if (e instanceof DOMException && e.name === 'AbortError') {
+  // fetch() timeouts surface as AbortError; CapacitorHttp (native) timeouts as an
+  // Error whose message says "timed out" — both must NOT read as "unreachable".
+  const msg = e instanceof Error ? e.message : String(e);
+  if ((e instanceof DOMException && e.name === 'AbortError') || /time[d ]?\s?out/i.test(msg)) {
     return 'Request timed out. Check your connection and try again.';
   }
   return 'Server unreachable. Check your connection and the URL in Settings.';

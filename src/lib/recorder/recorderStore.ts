@@ -43,6 +43,7 @@ import {
   audioRecovery,
 } from './knowledgeSessionApi';
 import { getUser, isAuthenticated, authStore } from '$lib/auth/auth';
+import { ApiError } from '$lib/auth/api';
 
 const DEFAULT_CHUNK_MS = 5000;
 
@@ -798,7 +799,7 @@ export const recorderStore = {
     startTimer();
   },
 
-  pauseRecording() {
+  async pauseRecording(): Promise<void> {
     if (get(recorderStore).state !== 'recording_offline') return;
 
     if (pcmCapture) {
@@ -809,21 +810,38 @@ export const recorderStore = {
         localBackupMR.pause();
       }
     } else {
-      recorder?.pause();
+      try {
+        await recorder?.pause();
+      } catch (e) {
+        // Non-fatal: worst case the mic keeps running under a "paused" UI,
+        // which is safe (no audio lost) — unlike a resume failure.
+        console.warn('[Recorder] pause() failed natively:', e instanceof Error ? e.message : e);
+      }
     }
 
     stopTimer();
     update((s) => ({ ...s, state: 'paused', micLevel: 0 }));
   },
 
-  resumeRecording() {
+  async resumeRecording(): Promise<void> {
     if (get(recorderStore).state !== 'paused') return;
 
     if (pcmCapture) {
       pcmCapture.resume();
       if (localBackupMR?.state === 'paused') localBackupMR.resume();
     } else {
-      recorder?.resume();
+      try {
+        await recorder?.resume();
+      } catch (e) {
+        // The native recorder declined to resume — most likely iOS tore down
+        // the audio session during the pause (call, Siri, another app, or a
+        // background reclaim) and never told this plugin. Surfacing this as
+        // a real error is the whole point of the fix: silently transitioning
+        // to "recording_offline" here is what previously left the UI showing
+        // an active recording that was capturing nothing.
+        setError(e instanceof Error ? e.message : 'Could not resume recording — please start a new session.');
+        return;
+      }
     }
 
     transition('recording_offline');
@@ -975,7 +993,12 @@ export const recorderStore = {
     transition('mock_uploading');
 
     const session = await offlineStorage.getSession(targetId);
-    if (!session) return;
+    if (!session) { transition('stopped_local'); return; }
+
+    // Resume a previous, partially completed flush (backend session + device already
+    // exist): skip creation and already-uploaded chunks, and only finish what is left
+    // (typically POST /stop that timed out although the server completed it).
+    const resumable = !!(session.knowledge_session_id && session.device_id && session.metadata?.recorded_offline);
 
     let step = 'create session';
     try {
@@ -985,7 +1008,9 @@ export const recorderStore = {
 
       // Offline flush — create session + Room atomically via startNow (recording state implied).
       // Do NOT call startKnowledgeSession() after this — startNow already sets status=recording.
-      const created = await startNowKnowledgeSession({
+      const created = resumable
+        ? { id: session.knowledge_session_id!, room_id: session.room_id ?? null }
+        : await startNowKnowledgeSession({
         title: session.title,
         session_type: (session.session_type === 'free_recording' ? 'voice_note' : session.session_type) as import('./knowledgeSessionApi').KnowledgeSessionType,
         subject: session.subject || null,
@@ -1009,7 +1034,9 @@ export const recorderStore = {
       });
 
       step = 'register device';
-      const device = await registerKnowledgeSessionDevice(created.id, buildDevicePayload());
+      const device = resumable
+        ? { id: session.device_id! }
+        : await registerKnowledgeSessionDevice(created.id, buildDevicePayload());
 
       const withBackendContext: LocalKnowledgeSession = {
         ...session,
@@ -1025,7 +1052,7 @@ export const recorderStore = {
 
       for (const chunk of chunks) {
         // Skip backup_only chunks — audio already sent via WebSocket, not for /audio-chunks.
-        if (chunk.status === 'backup_only') continue;
+        if (chunk.status === 'backup_only' || chunk.status === 'uploaded') continue;
 
         step = `upload chunk ${chunk.chunk_index}`;
         const blob = await offlineStorage.getChunkBlob(chunk.local_chunk_id);
@@ -1046,7 +1073,21 @@ export const recorderStore = {
       }
 
       step = 'stop session';
-      await stopKnowledgeSession(created.id);
+      // A timeout on /stop is retriable and the server may already have completed it:
+      // retry a few times, and treat 409 (already stopped) as success.
+      let stopErr: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await stopKnowledgeSession(created.id);
+          stopErr = null;
+          break;
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 409) { stopErr = null; break; }
+          stopErr = e;
+          if (!(e instanceof ApiError && e.retriable)) break;
+        }
+      }
+      if (stopErr) throw stopErr;
 
       const syncedSession: LocalKnowledgeSession = {
         ...withBackendContext,

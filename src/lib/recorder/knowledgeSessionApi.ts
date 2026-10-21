@@ -245,7 +245,7 @@ export async function uploadAudioChunk(params: AudioChunkUploadParams): Promise<
     method:  'POST',
     body:    form,
     headers: {}, // let fetch set multipart/form-data boundary automatically
-  });
+  }, false, 45_000);
 }
 
 function _extForMime(mime: string): string {
@@ -259,7 +259,9 @@ function _extForMime(mime: string): string {
 
 /** Canonically stop a session on the backend — POST /v1/knowledge-sessions/{id}/stop */
 export async function stopKnowledgeSession(sessionId: string): Promise<void> {
-  await request(`/knowledge-sessions/${sessionId}/stop`, { method: 'POST' });
+  // /stop triggers finalisation server-side and can exceed the default 20 s under load;
+  // a client timeout here does NOT mean the stop failed — callers must retry/tolerate 409.
+  await request(`/knowledge-sessions/${sessionId}/stop`, { method: 'POST' }, false, 90_000);
 }
 
 // ── Audio recovery ─────────────────────────────────────────────────────────
