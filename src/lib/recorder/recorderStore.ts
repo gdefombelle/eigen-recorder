@@ -88,6 +88,7 @@ let streamFatalCode: string | null = null;
 
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 let _creating = false; // idempotence guard
+let _autoSyncing = false; // guards against overlapping autoSyncPending() sweeps
 
 // Tracks upload promises (local mode) so _finalizeStop can flush before POST /stop
 const _inflightUploads = new Map<string, Promise<void>>();
@@ -281,6 +282,25 @@ async function _flushUploads(session: LocalKnowledgeSession): Promise<void> {
   );
 }
 
+// ── Syncable predicate ──────────────────────────────────────────
+//
+// True when a local session should be offered — manually (OfflineSessionsList's
+// Sync action) or automatically (autoSyncPending() below) — for sync: never
+// sent (no backend session), or a flush that got created server-side but did
+// not finish (e.g. /stop timed out), with at least one recorded chunk.
+// Exported and shared by both callers so they can never silently disagree
+// about what counts as "pending" — this file already has enough history of
+// bugs caused by two copies of the same rule drifting apart.
+
+const SYNCABLE_STATUSES = new Set(['recording_offline', 'stopped_local', 'paused', 'mock_uploading', 'error']);
+
+export function isSessionSyncable(session: LocalKnowledgeSession, chunkCount: number): boolean {
+  const halfFlushed = !!(session.knowledge_session_id && session.device_id && session.metadata?.recorded_offline);
+  return SYNCABLE_STATUSES.has(session.status)
+    && (!session.knowledge_session_id || halfFlushed)
+    && chunkCount > 0;
+}
+
 // ── Stop-with-retry helper ─────────────────────────────────────
 //
 // Shared by _finalizeStop() (live online stop) and mockUpload() (offline-
@@ -408,8 +428,33 @@ export const recorderStore = {
     chunkQueue.init(mockRecorderApi);
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('online',  () => update((s) => ({ ...s, isOnline: true })));
+      window.addEventListener('online', () => {
+        update((s) => ({ ...s, isOnline: true }));
+        // "Backend access recovered" — exactly the trigger for an automatic
+        // sync sweep. No-op for an anonymous user or an already-running sweep;
+        // see autoSyncPending()'s own guards.
+        void recorderStore.autoSyncPending();
+      });
       window.addEventListener('offline', () => update((s) => ({ ...s, isOnline: false })));
+
+      // iOS suspends the WebView without re-running any of this, so returning
+      // to the foreground needs its own signal — the same reasoning and the
+      // same native/web split as startAuthLifecycle() in pkceFlow.ts, kept
+      // separate here because this module's concern (pending local sessions)
+      // is unrelated to that one's (token freshness).
+      const onForeground = () => { void recorderStore.autoSyncPending(); };
+      if (isNative()) {
+        import('@capacitor/app').then(({ App }) => {
+          App.addListener('appStateChange', ({ isActive }: { isActive: boolean }) => {
+            if (isActive) onForeground();
+          });
+        }).catch(() => {/* native plugin unavailable — no-op */});
+      } else {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') onForeground();
+        });
+        window.addEventListener('focus', onForeground);
+      }
     }
 
     const defaultMode: import('./types').SyncMode = isAuthenticated() ? 'stream' : 'local';
@@ -418,6 +463,11 @@ export const recorderStore = {
     if (typeof window !== 'undefined') {
       authStore.subscribe((user) => {
         update((s) => ({ ...s, syncMode: user ? 'stream' : 'local' }));
+        // Covers both "just signed in" and the initial call every Svelte
+        // store subscription fires immediately with the current value — so
+        // an already-authenticated, already-online launch sweeps once here
+        // with no separate "check at startup" path needed.
+        if (user) void recorderStore.autoSyncPending();
       });
     }
   },
@@ -1181,6 +1231,50 @@ export const recorderStore = {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Sync failed at "${step}": ${msg}`);
+    }
+  },
+
+  /**
+   * Sweep local sessions and sync whatever is pending, with no user action —
+   * triggered on backend access recovery (network back online, app foreground
+   * resume, sign-in just completed). Local-first recording must keep working
+   * with no account at all; this exists for the ADDITIONAL case of a
+   * signed-in user whose sessions queued up while offline. Never runs for an
+   * anonymous user (no account == nothing to sync to, by design) and never
+   * runs with no network.
+   *
+   * Sequential, one session at a time — mockUpload() already is (register
+   * device, upload chunks, stop), and the backend-DB-pool-saturation history
+   * in this file's recent commits is reason enough not to fire several of
+   * those concurrently just because more than one session is pending.
+   *
+   * The session currently open for live recording is deliberately excluded,
+   * even if its status happens to be one mockUpload() would otherwise accept
+   * (e.g. 'paused') — this sweeps sessions sitting idle in storage, never one
+   * actively being captured right now.
+   */
+  async autoSyncPending(): Promise<void> {
+    if (_autoSyncing) return;
+    if (!isAuthenticated()) return;
+    if (!get(recorderStore).isOnline) return;
+
+    _autoSyncing = true;
+    try {
+      const { currentSession, state } = get(recorderStore);
+      const liveStates = new Set<RecorderState>([
+        'creating_local_session', 'recording_offline', 'paused', 'stopping', 'mock_uploading',
+      ]);
+      const activeId = liveStates.has(state) ? currentSession?.local_session_id : undefined;
+
+      const sessions = await offlineStorage.getAllSessions();
+      for (const session of sessions) {
+        if (session.local_session_id === activeId) continue;
+        const { chunkCount } = await offlineStorage.getSessionStats(session.local_session_id);
+        if (!isSessionSyncable(session, chunkCount)) continue;
+        await this.mockUpload(session.local_session_id);
+      }
+    } finally {
+      _autoSyncing = false;
     }
   },
 

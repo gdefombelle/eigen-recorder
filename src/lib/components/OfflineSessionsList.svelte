@@ -4,7 +4,7 @@
   import { goto } from '$app/navigation';
   import { langStore } from '$lib/i18n/index';
   import { authStore } from '$lib/auth/auth';
-  import { recorderStore } from '$lib/recorder/recorderStore';
+  import { recorderStore, isSessionSyncable } from '$lib/recorder/recorderStore';
   import { offlineStorage } from '$lib/recorder/offlineStorage';
   import { SESSION_TYPE_LABELS } from '$lib/recorder/types';
   import type { LocalKnowledgeSession } from '$lib/recorder/types';
@@ -234,14 +234,10 @@
   // ── Sync to EigenVertex ───────────────────────────────────────
   // Eligible: audio recorded locally, never sent, no backend session yet
   // (same rule as the "Sync to EigenVertex" button on the recorder screen).
-  const UNSYNCED = new Set(['recording_offline', 'stopped_local', 'paused', 'mock_uploading', 'error']);
+  // Shared with recorderStore.ts's autoSyncPending() — see isSessionSyncable's
+  // own doc comment for why this must not be a second, separately-maintained copy.
   function isSyncable(s: LocalKnowledgeSession): boolean {
-    // Never sent (no backend session), or a flush that got created server-side but
-    // did not finish (e.g. /stop timed out): both can be (re)synced safely.
-    const halfFlushed = !!(s.knowledge_session_id && s.device_id && s.metadata?.recorded_offline);
-    return UNSYNCED.has(s.status)
-      && (!s.knowledge_session_id || halfFlushed)
-      && (statsBySession[s.local_session_id]?.chunkCount ?? 0) > 0;
+    return isSessionSyncable(s, statsBySession[s.local_session_id]?.chunkCount ?? 0);
   }
 
   let syncingIds  = $state<Set<string>>(new Set());
