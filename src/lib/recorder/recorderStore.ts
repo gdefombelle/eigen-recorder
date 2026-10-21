@@ -995,6 +995,7 @@ export const recorderStore = {
         knowledge_intent,
         target_type: 'inbox',
         thread_id: session.thread_id ?? null,
+        request_id: session.local_session_id,  // idempotency key: retrying a failed sync must not duplicate
         metadata_json: {
           ...session.metadata,
           capture_routing: {

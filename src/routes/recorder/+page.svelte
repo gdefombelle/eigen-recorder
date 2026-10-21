@@ -54,7 +54,7 @@
     ev_after:  ", la plateforme de Domain Intelligence, pour indexer et exploiter chaque session.",
     hint:      "Gratuit · Sans inscription obligatoire · Audio stocké sur votre appareil",
     cta_rec:   "Nouvelle session",
-    cta_sess:  "Mes enregistrements",
+    cta_sess:  "Mes sessions",
     cta_reg:   "Créer un compte gratuit",
     cta_try:   "Enregistrer sans compte",
   } : {
@@ -66,7 +66,7 @@
     ev_after:  ", the Domain Intelligence platform, to index and leverage every session.",
     hint:      "Free · No sign-up required · Audio stored on your device",
     cta_rec:   "New session",
-    cta_sess:  "My recordings",
+    cta_sess:  "My sessions",
     cta_reg:   "Create a free account",
     cta_try:   "Record without an account",
   });

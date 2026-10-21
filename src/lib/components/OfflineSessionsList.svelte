@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
+  import { langStore } from '$lib/i18n/index';
+  import { authStore } from '$lib/auth/auth';
+  import { recorderStore } from '$lib/recorder/recorderStore';
   import { offlineStorage } from '$lib/recorder/offlineStorage';
   import { SESSION_TYPE_LABELS } from '$lib/recorder/types';
   import type { LocalKnowledgeSession } from '$lib/recorder/types';
@@ -184,6 +188,103 @@
     }
   }
 
+  // ── i18n (list-level strings; one language at a time, never mixed) ──
+  let isFr   = $derived($langStore === 'fr');
+  let authed = $derived($authStore !== null);
+  let online = $derived($recorderStore.isOnline);
+
+  const STR = {
+    fr: {
+      loading: 'Chargement…', emptyTitle: 'Aucune session', emptyHint: 'Lancez une nouvelle session pour commencer à enregistrer.',
+      selectAll: 'Tout sélectionner', deselectAll: 'Tout désélectionner', select: 'Sélectionner', cancel: 'Annuler',
+      selected: (n: number) => `${n} sélectionnée${n > 1 ? 's' : ''}`,
+      del: 'Supprimer', deleting: 'Suppression…',
+      delConfirm: (n: number) => `Supprimer ${n} session${n > 1 ? 's' : ''} ?`,
+      openContent: 'Ouvrir le contenu', shareContent: 'Partager le contenu', sharing: 'Partage…',
+      openLive: 'Ouvrir la Live Room', opening: 'Ouverture…',
+      purge: "Purger l'audio", delAll: 'Supprimer entièrement',
+      sync: 'Synchroniser', syncN: (n: number) => `Synchroniser ${n}`, syncing: 'Synchronisation…',
+      syncProgress: (i: number, n: number) => `Synchronisation ${i}/${n}…`,
+      syncSignIn: 'Se connecter pour synchroniser', syncOffline: 'Hors ligne', 
+      syncOk: (n: number) => `${n} session${n > 1 ? 's' : ''} synchronisée${n > 1 ? 's' : ''}.`,
+      syncFail: (n: number, msg: string) => `${n} échec${n > 1 ? 's' : ''} : ${msg}`,
+      st: { draft: 'Brouillon', ready: 'Prête', local: 'Local', paused: 'En pause', synced: 'Envoyée', sending: 'Envoi…', error: 'Erreur' },
+      err: 'Erreur',
+    },
+    en: {
+      loading: 'Loading…', emptyTitle: 'No sessions yet', emptyHint: 'Start a new session to begin recording.',
+      selectAll: 'Select all', deselectAll: 'Deselect all', select: 'Select', cancel: 'Cancel',
+      selected: (n: number) => `${n} selected`,
+      del: 'Delete', deleting: 'Deleting…',
+      delConfirm: (n: number) => `Delete ${n} session${n > 1 ? 's' : ''}?`,
+      openContent: 'Open session content', shareContent: 'Share session content', sharing: 'Sharing…',
+      openLive: 'Open Live Room', opening: 'Opening…',
+      purge: 'Purge audio', delAll: 'Delete entirely',
+      sync: 'Sync', syncN: (n: number) => `Sync ${n}`, syncing: 'Syncing…',
+      syncProgress: (i: number, n: number) => `Syncing ${i}/${n}…`,
+      syncSignIn: 'Sign in to sync', syncOffline: 'Offline',
+      syncOk: (n: number) => `${n} session${n > 1 ? 's' : ''} synced.`,
+      syncFail: (n: number, msg: string) => `${n} failed: ${msg}`,
+      st: { draft: 'Draft', ready: 'Ready', local: 'Local', paused: 'Paused', synced: 'Synced', sending: 'Sending…', error: 'Error' },
+      err: 'Error',
+    },
+  };
+  let S = $derived(isFr ? STR.fr : STR.en);
+
+  // ── Sync to EigenVertex ───────────────────────────────────────
+  // Eligible: audio recorded locally, never sent, no backend session yet
+  // (same rule as the "Sync to EigenVertex" button on the recorder screen).
+  const UNSYNCED = new Set(['recording_offline', 'stopped_local', 'paused', 'mock_uploading', 'error']);
+  function isSyncable(s: LocalKnowledgeSession): boolean {
+    return UNSYNCED.has(s.status)
+      && !s.knowledge_session_id
+      && (statsBySession[s.local_session_id]?.chunkCount ?? 0) > 0;
+  }
+
+  let syncingIds  = $state<Set<string>>(new Set());
+  let syncStatus  = $state('');          // progress / result banner text
+  let syncIsError = $state(false);
+  let syncBusy    = $derived(syncingIds.size > 0);
+
+  async function syncOne(id: string): Promise<string | null> {
+    await recorderStore.mockUpload(id);
+    const st = get(recorderStore);
+    if (st.state === 'error') {
+      const msg = st.errorMessage ?? S.err;
+      recorderStore.clearError();
+      return msg;
+    }
+    return null;
+  }
+
+  async function syncMany(targets: LocalKnowledgeSession[]) {
+    if (targets.length === 0 || syncBusy) return;
+    if (!authed) { goto('/auth?next=/recorder/offline'); return; }
+    if (!online) return;
+    syncIsError = false;
+    let ok = 0, fail = 0, lastErr = '';
+    for (let i = 0; i < targets.length; i++) {
+      const id = targets[i].local_session_id;
+      syncStatus  = S.syncProgress(i + 1, targets.length);
+      syncingIds  = new Set([id]);
+      const err = await syncOne(id);
+      if (err) { fail++; lastErr = err; } else { ok++; }
+    }
+    syncingIds = new Set();
+    syncIsError = fail > 0;
+    syncStatus  = fail > 0 ? S.syncFail(fail, lastErr) : S.syncOk(ok);
+    if (selectMode) exitSelectMode();
+    await load();
+  }
+
+  function syncFromMenu(session: LocalKnowledgeSession, e: MouseEvent) {
+    e.stopPropagation();
+    openMenu = null;
+    syncMany([session]);
+  }
+
+  let selectedSyncable = $derived(sessions.filter((s) => selected.has(s.local_session_id) && isSyncable(s)));
+
   // ── Selection mode helpers ────────────────────────────────────
   function enterSelectMode() {
     selectMode = true;
@@ -211,7 +312,7 @@
 
   async function deleteSelected() {
     if (selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} session${selected.size > 1 ? 's' : ''}?`)) return;
+    if (!confirm(S.delConfirm(selected.size))) return;
     deleting = true;
     await Promise.all([...selected].map((id) => offlineStorage.deleteSession(id)));
     deleting = false;
@@ -220,16 +321,18 @@
   }
 
   function statusBadge(status: string): { cls: string; label: string } {
+    // 'recording_offline' persists on sessions whose recording ended without the
+    // final status write; for the user the audio is simply saved locally → "Local".
     const map: Record<string, { cls: string; label: string }> = {
-      draft:             { cls: 'badge-gray',   label: 'Draft' },
-      ready:             { cls: 'badge-gray',   label: 'Ready' },
-      recording_offline: { cls: 'badge-red',    label: 'Interrupted' },
-      paused:            { cls: 'badge-orange', label: 'Paused' },
-      stopped_local:     { cls: 'badge-orange', label: 'Local' },
-      synced:            { cls: 'badge-green',  label: '◈ Envoyé' },
-      mock_uploading:    { cls: 'badge-blue',   label: 'Envoi…' },
-      mock_synced:       { cls: 'badge-green',  label: '◈ Envoyé' },
-      error:             { cls: 'badge-red',    label: 'Error' },
+      draft:             { cls: 'badge-gray',   label: S.st.draft },
+      ready:             { cls: 'badge-gray',   label: S.st.ready },
+      recording_offline: { cls: 'badge-orange', label: S.st.local },
+      paused:            { cls: 'badge-orange', label: S.st.paused },
+      stopped_local:     { cls: 'badge-orange', label: S.st.local },
+      synced:            { cls: 'badge-green',  label: '◈ ' + S.st.synced },
+      mock_uploading:    { cls: 'badge-blue',   label: S.st.sending },
+      mock_synced:       { cls: 'badge-green',  label: '◈ ' + S.st.synced },
+      error:             { cls: 'badge-red',    label: S.st.error },
     };
     return map[status] ?? { cls: 'badge-gray', label: status };
   }
@@ -245,14 +348,14 @@
   {/if}
   {#if loading}
     <div class="loading">
-      <span class="spinner-sm"></span> Loading…
+      <span class="spinner-sm"></span> {S.loading}
     </div>
 
   {:else if sessions.length === 0}
     <div class="empty-state">
       <div class="empty-state-icon">🎙</div>
-      <h3>No recordings yet</h3>
-      <p>Start a new session to begin recording.</p>
+      <h3>{S.emptyTitle}</h3>
+      <p>{S.emptyHint}</p>
     </div>
 
   {:else}
@@ -261,12 +364,22 @@
       <div class="list-header">
         {#if selectMode}
           <button class="header-btn" onclick={toggleAll}>
-            {selected.size === sessions.length ? 'Deselect all' : 'Select all'}
+            {selected.size === sessions.length ? S.deselectAll : S.selectAll}
           </button>
-          <span class="select-count">{selected.size} selected</span>
-          <button class="header-btn cancel-btn" onclick={exitSelectMode}>Cancel</button>
+          <span class="select-count">{S.selected(selected.size)}</span>
+          <button class="header-btn cancel-btn" onclick={exitSelectMode}>{S.cancel}</button>
         {:else}
-          <button class="header-btn" onclick={enterSelectMode}>Select</button>
+          <button class="header-btn" onclick={enterSelectMode}>{S.select}</button>
+        {/if}
+      </div>
+    {/if}
+
+    {#if syncStatus}
+      <div class="sync-banner" class:sync-banner-error={syncIsError} role="status">
+        {#if syncBusy}<span class="spinner-sm"></span>{/if}
+        <span>{syncStatus}</span>
+        {#if !syncBusy}
+          <button class="sync-banner-close" aria-label="OK" onclick={() => { syncStatus = ''; }}>×</button>
         {/if}
       </div>
     {/if}
@@ -409,6 +522,20 @@
                   <div class="action-menu animate-fade-in" role="menu"
                     style="top:{menuPos.top}px;right:{menuPos.right}px"
                     onclick={(e) => e.stopPropagation()}>
+                    {#if isSyncable(session)}
+                      <button
+                        class="menu-item menu-item-live-room"
+                        role="menuitem"
+                        disabled={syncBusy || (authed && !online)}
+                        onclick={(e) => syncFromMenu(session, e)}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M7.5 11.5V3M4 6.5l3.5-3.5L11 6.5M2.5 12.5h10"/>
+                        </svg>
+                        {authed ? S.sync : S.syncSignIn}
+                        {#if authed && !online}<span class="menu-hint">{S.syncOffline}</span>{/if}
+                      </button>
+                    {/if}
                     {#if session.knowledge_session_id}
                       <button
                         class="menu-item"
@@ -422,7 +549,7 @@
                         <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
                           <path d="M3 1.8h6l3 3V13H3z"/><path d="M9 1.8v3h3M5 8h5M5 10.5h5"/>
                         </svg>
-                        Open session content
+                        {S.openContent}
                       </button>
                       <button
                         class="menu-item"
@@ -434,7 +561,7 @@
                           <circle cx="11.5" cy="3.5" r="1.7"/><circle cx="3.5" cy="7.5" r="1.7"/><circle cx="11.5" cy="11.5" r="1.7"/>
                           <path d="M5.1 6.6 9.9 4.4M5.1 8.4l4.8 2.2"/>
                         </svg>
-                        {#if shareLoadingId === session.local_session_id}<span class="spinner-sm"></span>Sharing…{:else}Share session content{/if}
+                        {#if shareLoadingId === session.local_session_id}<span class="spinner-sm"></span>{S.sharing}{:else}{S.shareContent}{/if}
                         {#if shareMessageId === session.local_session_id}
                           <span class="menu-hint" class:menu-hint-error={shareIsError}>{shareMessage}</span>
                         {/if}
@@ -449,9 +576,9 @@
                           <rect x="1" y="3" width="13" height="9" rx="1.5"/>
                           <path d="M5 7h5M7.5 5v4"/>
                         </svg>
-                        {#if liveRoomLoadingId === session.local_session_id}<span class="spinner-sm"></span>Opening…{:else}Open Live Room{/if}
+                        {#if liveRoomLoadingId === session.local_session_id}<span class="spinner-sm"></span>{S.opening}{:else}{S.openLive}{/if}
                         {#if liveRoomErrorId === session.local_session_id}
-                          <span class="menu-hint menu-hint-error">Erreur</span>
+                          <span class="menu-hint menu-hint-error">{S.err}</span>
                         {/if}
                       </button>
                     {/if}
@@ -464,7 +591,7 @@
                         <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                           <path d="M2 4h11M6 4V2h3v2M5 4l.5 9M10 4l-.5 9M7.5 4v9"/>
                         </svg>
-                        Purger l'audio
+                        {S.purge}
                         <span class="menu-hint">{formatBytes(stats.totalBytes)}</span>
                       </button>
                     {/if}
@@ -476,7 +603,7 @@
                       <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                         <path d="M2 4h11M6 4V2h3v2M5 4l.5 9M10 4l-.5 9M7.5 4v9"/>
                       </svg>
-                      Supprimer entièrement
+                      {S.delAll}
                     </button>
                   </div>
                 {/if}
@@ -497,18 +624,34 @@
     <!-- ── Bottom action bar (select mode only) ── -->
     {#if selectMode && !compact}
       <div class="select-bar">
+        {#if selectedSyncable.length > 0}
+          <button
+            class="sync-selected-btn"
+            onclick={() => syncMany(selectedSyncable)}
+            disabled={syncBusy || deleting || (authed && !online)}
+          >
+            {#if syncBusy}
+              <span class="spinner-sm"></span> {S.syncing}
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7.5 11.5V3M4 6.5l3.5-3.5L11 6.5M2.5 12.5h10"/>
+              </svg>
+              {authed ? S.syncN(selectedSyncable.length) : S.syncSignIn}
+            {/if}
+          </button>
+        {/if}
         <button
           class="delete-selected-btn"
           onclick={deleteSelected}
-          disabled={selected.size === 0 || deleting}
+          disabled={selected.size === 0 || deleting || syncBusy}
         >
           {#if deleting}
-            <span class="spinner-sm"></span> Deleting…
+            <span class="spinner-sm"></span> {S.deleting}
           {:else}
             <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
               <path d="M2 4h11M6 4V2h3v2M5 4l.5 9M10 4l-.5 9M7.5 4v9"/>
             </svg>
-            Delete{selected.size > 0 ? ` ${selected.size}` : ''}
+            {S.del}{selected.size > 0 ? ` ${selected.size}` : ''}
           {/if}
         </button>
       </div>
@@ -769,6 +912,8 @@
 
   /* ── Bottom delete bar ── */
   .select-bar {
+    display: flex;
+    gap: var(--sp-2);
     position: sticky;
     bottom: 0;
     padding: var(--sp-3) 0 var(--sp-2);
@@ -780,7 +925,8 @@
     align-items: center;
     justify-content: center;
     gap: 7px;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     padding: 13px;
     border: none;
     border-radius: var(--radius-lg);
@@ -791,6 +937,49 @@
     cursor: pointer;
     transition: opacity 120ms;
   }
+  .sync-selected-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    flex: 1;
+    min-width: 0;
+    padding: 13px;
+    border: 1px solid var(--ev-blue);
+    border-radius: var(--radius-lg);
+    background: rgba(154,209,255,0.14);
+    color: var(--ev-blue);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 120ms;
+  }
+  .sync-selected-btn:disabled { opacity: 0.45; cursor: default; }
+  .sync-selected-btn:not(:disabled):active { opacity: 0.8; }
+
+  .sync-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: var(--sp-3);
+    padding: 10px 12px;
+    border: 1px solid var(--ev-border);
+    border-radius: var(--radius-lg);
+    font-size: 0.82rem;
+    color: var(--ev-blue);
+    background: rgba(154,209,255,0.07);
+  }
+  .sync-banner-error { color: var(--ev-danger); background: rgba(239,68,68,0.08); }
+  .sync-banner-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
   .delete-selected-btn:disabled { opacity: 0.45; cursor: default; }
   .delete-selected-btn:not(:disabled):active { opacity: 0.8; }
 
