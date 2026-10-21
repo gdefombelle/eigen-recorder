@@ -19,6 +19,7 @@ import type {
   LocalKnowledgeSession,
   AudioChunkMetadata,
   LiveStreamState,
+  SyncMode,
 } from './types';
 import { AudioRecorder, getSupportedMimeType } from './audioRecorder';
 import { NativeAudioRecorder } from './nativeAudioRecorder';
@@ -280,6 +281,67 @@ async function _flushUploads(session: LocalKnowledgeSession): Promise<void> {
   );
 }
 
+// ── Stop-with-retry helper ─────────────────────────────────────
+//
+// Shared by _finalizeStop() (live online stop) and mockUpload() (offline-
+// flush retry): retries a device-stop call up to 3 times on a retriable
+// ApiError (network/timeout/5xx), and treats a 409 (session already
+// terminal) as success rather than failure — a retry after a dropped
+// response whose first attempt actually succeeded server-side must not
+// re-fail just because the session has already moved on.
+
+async function _stopWithRetry(stopFn: () => Promise<void>): Promise<void> {
+  let stopErr: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await stopFn();
+      return;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) return;
+      stopErr = e;
+      if (!(e instanceof ApiError && e.retriable)) break;
+    }
+  }
+  throw stopErr;
+}
+
+// ── Backend stop decision ───────────────────────────────────────
+//
+// Device-stop when device_id is available, falling back to the deprecated
+// meeting-level /stop otherwise. Exported (test-only, underscore-prefixed
+// per this file's convention) because the surrounding _finalizeStop() has
+// enough native/PCM/MediaRecorder machinery around it that an end-to-end
+// test would mock far more than this decision itself warrants.
+//
+// Verified invariant (createSession(): Flow A lines ~484-487 + 506; Flow
+// B/C lines ~548-551 + 559): device_id is always registered together with
+// knowledge_session_id whenever a session is created online+authed, and
+// startRecording()'s own entry gate for stream mode (~line 670) requires
+// both truthy before capture can even begin — so device_id is normally
+// guaranteed non-null here. The one confirmed exception: a user selects a
+// planned session while online (so recordable sessions load), then goes
+// offline or signs out in the instant between that and tapping Start —
+// createSession()'s shouldSync branch (registration included) is skipped
+// entirely, leaving knowledge_session_id set but device_id null. If the
+// network returns mid-recording, isOnline flips true and this still runs.
+// Narrow, but real — hence the explicit fallback below rather than a
+// non-null assertion.
+
+export async function _stopSessionBackend(
+  session: LocalKnowledgeSession,
+  ksId: string,
+  syncMode: SyncMode,
+): Promise<void> {
+  if (session.device_id) {
+    await _stopWithRetry(() => stopRecordingDevice(ksId, session.device_id!));
+  } else {
+    console.warn(
+      `[Recorder] _finalizeStop: no device_id (mode=${syncMode}, local_session_id=${session.local_session_id}) — falling back to the deprecated meeting-level /stop.`,
+    );
+    await stopKnowledgeSession(ksId);
+  }
+}
+
 // ── Stop helper ──────────────────────────────────────────────
 // Shared final step for both recording paths.
 
@@ -299,7 +361,7 @@ async function _finalizeStop(
 
   if (ksId && isOnline && syncMode !== 'local') {
     try {
-      await stopKnowledgeSession(ksId);
+      await _stopSessionBackend(session, ksId, syncMode);
       backendStopped = true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1094,23 +1156,8 @@ export const recorderStore = {
       // device-level stop (not the deprecated meeting-level /stop): a plain status
       // write that queues finalization in the background instead of awaiting the
       // whole pipeline inline, so it no longer blocks on transcription/staff-agent/
-      // minutes-doc generation. Retries and 409-tolerance stay — a terminal-session
-      // 409 is a real, reachable response (see stopRecordingDevice()'s doc comment),
-      // and a retry after a dropped response must not re-fail just because the
-      // server actually succeeded the first time.
-      let stopErr: unknown = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          await stopRecordingDevice(created.id, device.id);
-          stopErr = null;
-          break;
-        } catch (e) {
-          if (e instanceof ApiError && e.status === 409) { stopErr = null; break; }
-          stopErr = e;
-          if (!(e instanceof ApiError && e.retriable)) break;
-        }
-      }
-      if (stopErr) throw stopErr;
+      // minutes-doc generation. Retry + 409-tolerance: _stopWithRetry() above.
+      await _stopWithRetry(() => stopRecordingDevice(created.id, device.id));
 
       const syncedSession: LocalKnowledgeSession = {
         ...withBackendContext,
