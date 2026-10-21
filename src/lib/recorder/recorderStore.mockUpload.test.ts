@@ -51,7 +51,8 @@ vi.mock('./knowledgeSessionApi', () => ({
   registerKnowledgeSessionDevice:    (...a: unknown[]) => mockRegisterDevice(...a),
   startKnowledgeSession:             vi.fn(),
   resumeKnowledgeSession:            vi.fn(),
-  stopKnowledgeSession:              (...a: unknown[]) => mockStop(...a),
+  stopKnowledgeSession:              vi.fn(),
+  stopRecordingDevice:               (...a: unknown[]) => mockStop(...a),
   uploadAudioChunk:                  (...a: unknown[]) => mockUploadChunk(...a),
   buildDevicePayload:                vi.fn().mockReturnValue({}),
   toParticipantPayload:              vi.fn().mockReturnValue(undefined),
@@ -179,21 +180,40 @@ describe('mockUpload — resuming a half-flushed session', () => {
   });
 });
 
-// ── 409 on /stop: already stopped is a success, not a failure ─────────────
+// ── 409 on device-stop: session already terminal (CLOSED) is a success ────
+//
+// Confirmed server-side in eigenvertex/.../knowledge_sessions.py:
+// _ensure_session_access(write=True) 409s with "This knowledge session is
+// terminal and cannot be changed" once status reaches CLOSED — a retry after
+// a dropped response whose first attempt actually succeeded lands exactly
+// here, and must read as success, not failure.
 
-describe('mockUpload — /stop returns 409 (already stopped)', () => {
+describe('mockUpload — device-stop returns 409 (session already terminal)', () => {
   it('treats 409 as success and still reaches "synced"', async () => {
     mockGetSession.mockResolvedValue(makeSession({
       knowledge_session_id: 'ks-existing',
       device_id:             'dev-existing',
     }));
     mockGetChunksMeta.mockResolvedValue([]);
-    mockStop.mockRejectedValueOnce(new ApiError(409, 'Already stopped', false));
+    mockStop.mockRejectedValueOnce(new ApiError(409, 'This knowledge session is terminal and cannot be changed.', false));
 
     await recorderStore.mockUpload('local-1');
 
     expect(get(recorderStore).state).toBe('synced');
     expect(mockStop).toHaveBeenCalledTimes(1); // no pointless retry after a definitive 409
+  });
+
+  it('stops by DEVICE, not by the deprecated meeting-level call', async () => {
+    mockGetSession.mockResolvedValue(makeSession({
+      knowledge_session_id: 'ks-existing',
+      device_id:             'dev-existing',
+    }));
+    mockGetChunksMeta.mockResolvedValue([]);
+    mockStop.mockResolvedValue(undefined);
+
+    await recorderStore.mockUpload('local-1');
+
+    expect(mockStop).toHaveBeenCalledWith('ks-existing', 'dev-existing');
   });
 });
 

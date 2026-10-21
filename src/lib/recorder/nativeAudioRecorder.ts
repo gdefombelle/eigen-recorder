@@ -15,11 +15,18 @@ export class NativeAudioRecorder {
   onChunk?: (blob: Blob, chunkIndex: number, startMs: number, endMs: number) => void;
   onError?: (err: Error) => void;
   onStop?:  () => void;
+  /** A system interruption (call, Siri, another app, OS reclaim) paused capture with no app action. */
+  onInterrupted?: () => void;
+  /** The interruption ended and the plugin resumed capture on its own. */
+  onAutoResumed?: () => void;
+  /** The interruption ended but capture is still paused — the user must tap Resume. */
+  onInterruptionEnded?: () => void;
 
   private _levelL   = 0;
   private _levelR   = 0;
   private _elapsed  = 0;
   private _poll: ReturnType<typeof setInterval> | null = null;
+  private _listeners: Array<{ remove: () => Promise<void> }> = [];
 
   // ── Permission ──────────────────────────────────────────────
 
@@ -42,6 +49,11 @@ export class NativeAudioRecorder {
       sampleRate:      48000,
     });
     this._startPolling();
+    this._listeners = await Promise.all([
+      EigenAudio.addListener('recordingInterrupted',      () => this.onInterrupted?.()),
+      EigenAudio.addListener('recordingResumed',           () => this.onAutoResumed?.()),
+      EigenAudio.addListener('recordingInterruptionEnded', () => this.onInterruptionEnded?.()),
+    ]);
   }
 
   // ── Pause / Resume ──────────────────────────────────────────
@@ -60,6 +72,7 @@ export class NativeAudioRecorder {
 
   async stop(): Promise<void> {
     this._stopPolling();
+    await this._removeListeners();
 
     let result: { chunks: EigenAudioChunk[]; durationMs: number };
     try {
@@ -88,7 +101,7 @@ export class NativeAudioRecorder {
     this.onStop?.();
   }
 
-  release(): void { this._stopPolling(); }
+  release(): void { this._stopPolling(); void this._removeListeners(); }
 
   // ── Synchronous getters (backed by async polling) ───────────
 
@@ -120,5 +133,11 @@ export class NativeAudioRecorder {
   private _stopPolling() {
     if (this._poll) clearInterval(this._poll);
     this._poll = null;
+  }
+
+  private async _removeListeners() {
+    const listeners = this._listeners;
+    this._listeners = [];
+    await Promise.allSettled(listeners.map((l) => l.remove()));
   }
 }

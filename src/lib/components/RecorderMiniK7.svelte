@@ -275,6 +275,15 @@
         />
       </div>
 
+      <!-- System-caused pause (call, Siri, another app, background reclaim) — distinct
+           from a user-initiated Pause, so it's never mistaken for an active recording
+           silently capturing nothing. -->
+      {#if isPaused && store.wasInterrupted}
+        <div class="interrupted-banner" role="status">
+          <span aria-hidden="true">⚠</span> Interrupted by the system — tap Resume to continue.
+        </div>
+      {/if}
+
       <!-- Sync mode toggle — only in ready state, before first REC -->
       {#if store.state === 'ready' && store.chunks.length === 0}
         <SyncModeToggle
@@ -588,6 +597,20 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);
+    margin-top: var(--sp-2);
+  }
+
+  /* ── Interrupted (system-caused pause) ── */
+  .interrupted-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: 0.8rem;
+    color: var(--ev-orange);
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    padding: var(--sp-3) var(--sp-4);
+    border-radius: var(--r);
     margin-top: var(--sp-2);
   }
 

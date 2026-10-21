@@ -37,6 +37,7 @@ import {
   startKnowledgeSession,
   resumeKnowledgeSession,
   stopKnowledgeSession,
+  stopRecordingDevice,
   uploadAudioChunk,
   buildDevicePayload,
   toParticipantPayload,
@@ -61,6 +62,7 @@ const INITIAL: RecorderStoreState = {
   liveStreamState:  'idle',
   framesStreamed:   0,
   streamPulse:      false,
+  wasInterrupted:   false,
 };
 
 // ── Internal mutable state ───────────────────────────────────
@@ -760,6 +762,22 @@ export const recorderStore = {
       const native = new NativeAudioRecorder();
       native.onChunk = handleChunk;
       native.onError = (err) => setError(err.message);
+      native.onInterrupted = () => {
+        if (get(recorderStore).state !== 'recording_offline') return;
+        stopTimer();
+        update((s) => ({ ...s, state: 'paused', micLevel: 0, wasInterrupted: true }));
+      };
+      native.onAutoResumed = () => {
+        if (get(recorderStore).state !== 'paused') return;
+        update((s) => ({ ...s, wasInterrupted: false }));
+        transition('recording_offline');
+        startTimer();
+      };
+      native.onInterruptionEnded = () => {
+        // Still paused — leave wasInterrupted set so the UI keeps the distinct
+        // "Interrupted" wording until the user taps Resume (resumeRecording()
+        // below already clears it on success).
+      };
       recorder = native;
       try {
         await native.start(currentSession.local_session_id, chunkDurationMs);
@@ -820,7 +838,7 @@ export const recorderStore = {
     }
 
     stopTimer();
-    update((s) => ({ ...s, state: 'paused', micLevel: 0 }));
+    update((s) => ({ ...s, state: 'paused', micLevel: 0, wasInterrupted: false }));
   },
 
   async resumeRecording(): Promise<void> {
@@ -844,7 +862,7 @@ export const recorderStore = {
       }
     }
 
-    transition('recording_offline');
+    transition('recording_offline', { wasInterrupted: false });
     startTimer();
   },
 
@@ -1073,12 +1091,17 @@ export const recorderStore = {
       }
 
       step = 'stop session';
-      // A timeout on /stop is retriable and the server may already have completed it:
-      // retry a few times, and treat 409 (already stopped) as success.
+      // device-level stop (not the deprecated meeting-level /stop): a plain status
+      // write that queues finalization in the background instead of awaiting the
+      // whole pipeline inline, so it no longer blocks on transcription/staff-agent/
+      // minutes-doc generation. Retries and 409-tolerance stay — a terminal-session
+      // 409 is a real, reachable response (see stopRecordingDevice()'s doc comment),
+      // and a retry after a dropped response must not re-fail just because the
+      // server actually succeeded the first time.
       let stopErr: unknown = null;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          await stopKnowledgeSession(created.id);
+          await stopRecordingDevice(created.id, device.id);
           stopErr = null;
           break;
         } catch (e) {

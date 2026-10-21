@@ -77,6 +77,25 @@ export interface EigenAudioPlugin {
     event: 'dictationError',
     cb: (data: { kind: string; message: string }) => void,
   ): Promise<{ remove: () => Promise<void> }>;
+
+  // Fired by EigenAudioPlugin's AVAudioSession.interruptionNotification observer —
+  // a call, Siri, another app, or the OS reclaiming the session can force recording
+  // to a stop with no method call from JS. See EigenAudioPlugin.swift's
+  // handleInterruption(_:) for the full contract.
+  addListener(
+    event: 'recordingInterrupted',
+    cb: () => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+  /** The system interruption ended and the plugin auto-resumed successfully. */
+  addListener(
+    event: 'recordingResumed',
+    cb: () => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+  /** The interruption ended but auto-resume was not offered or failed — stays paused. */
+  addListener(
+    event: 'recordingInterruptionEnded',
+    cb: (data: { canAutoResume: boolean }) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
 }
 
 export const EigenAudio = registerPlugin<EigenAudioPlugin>('EigenAudioPlugin');

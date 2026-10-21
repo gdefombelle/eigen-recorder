@@ -253,6 +253,12 @@ export interface RecorderStoreState {
   liveStreamState: LiveStreamState;   // PCM WebSocket state (stream mode)
   framesStreamed: number;             // PCM frames successfully sent
   streamPulse: boolean;               // true briefly on each frame sent (animation)
+  // True while state is 'paused' BECAUSE iOS interrupted the audio session (call,
+  // Siri, another app, background reclaim) rather than the user tapping Pause.
+  // Lets the UI show "Interrupted — tap Resume" instead of a plain "Paused", so a
+  // system-caused stop is never mistaken for an active recording with the timer
+  // quietly ticking over dead air.
+  wasInterrupted: boolean;
 }
 
 export interface CreateSessionParams {

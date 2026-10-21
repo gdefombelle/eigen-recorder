@@ -257,11 +257,44 @@ function _extForMime(mime: string): string {
 
 // ── Session stop ───────────────────────────────────────────────────────────
 
-/** Canonically stop a session on the backend — POST /v1/knowledge-sessions/{id}/stop */
+/**
+ * Canonically stop a session on the backend — POST /v1/knowledge-sessions/{id}/stop
+ *
+ * @deprecated Backend-deprecated (`deprecated=True`, "Recorders must use the device
+ * endpoint"). It awaits the ENTIRE finalization pipeline (transcription, staff agent,
+ * minutes doc) synchronously inside the request — confirmed by reading
+ * eigenvertex/src/api/routes/knowledge_sessions.py — which is why it could exceed 20 s
+ * under load and is a contributor to backend DB-pool saturation. Use
+ * stopRecordingDevice() instead wherever a device_id is available. Kept only for the
+ * one remaining call site (the live online stop-at-recording-end flow in
+ * _finalizeStop()) pending verification that device_id is always available there too.
+ */
 export async function stopKnowledgeSession(sessionId: string): Promise<void> {
   // /stop triggers finalisation server-side and can exceed the default 20 s under load;
   // a client timeout here does NOT mean the stop failed — callers must retry/tolerate 409.
   await request(`/knowledge-sessions/${sessionId}/stop`, { method: 'POST' }, false, 90_000);
+}
+
+/**
+ * Stop a specific recording device — POST /v1/knowledge-sessions/{id}/devices/{deviceId}/stop
+ *
+ * The backend-recommended replacement for the deprecated stopKnowledgeSession(): a plain
+ * device-status update (commit) that QUEUES finalization as a background asyncio.Task
+ * instead of awaiting it inline — confirmed in knowledge_sessions.py
+ * (_queue_knowledge_session_finalization returns the Task without awaiting it). The
+ * session only actually finalizes once its last active device is stopped, so this is
+ * the correct per-device signal, not just a faster /stop.
+ *
+ * Can still 409 ("This knowledge session is terminal and cannot be changed") if the
+ * session already reached a terminal CLOSED state by the time this is called — e.g. a
+ * retry after a previous attempt's response was lost but actually succeeded server-side.
+ * Callers must tolerate that exactly as they did for the old /stop.
+ */
+export async function stopRecordingDevice(sessionId: string, deviceId: string): Promise<void> {
+  // No longer blocking server-side, so the generous old timeout is gone — this should
+  // behave like any other fast write. 25 s keeps a small margin over the 20 s default
+  // for a write + commit + background-task enqueue under load.
+  await request(`/knowledge-sessions/${sessionId}/devices/${deviceId}/stop`, { method: 'POST' }, false, 25_000);
 }
 
 // ── Audio recovery ─────────────────────────────────────────────────────────

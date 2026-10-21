@@ -111,6 +111,13 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     private var isPaused:         Bool   = false
     private var currentChunkStart: Double = 0
 
+    // True while paused BECAUSE of a system interruption (call, Siri, another app, the
+    // OS reclaiming the session in the background) rather than a user tap on Pause —
+    // distinguishes "the system did this" from "the user did this" for the JS layer,
+    // and tells handleInterruption(_:) .ended whether an end-of-interruption event is
+    // actually ours to act on.
+    private var isInterrupted: Bool = false
+
     private var savedChunks: [[String: Any]] = []
     private var _levelL: Float = 0
     private var _levelR: Float = 0
@@ -191,7 +198,99 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
             ) { [weak self] _ in self?.updateLevels() }
         }
 
+        isInterrupted = false
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+
         call.resolve()
+    }
+
+    // ── Audio session interruption ──────────────────────────────────────────
+    //
+    // iOS can force the audio session inactive at any moment — a phone call, Siri,
+    // another app, or the OS reclaiming it in the background — and recording stops
+    // underneath the app with no call into this plugin. Without this observer the
+    // app has no way to know: the exact bug behind a flight-recorded note where
+    // Resume reported success but the mic had gone silent after the plane's PA
+    // system (or the screen locking) interrupted the session.
+    //
+    // On .began: pause exactly like a user-initiated pause (so JS sees consistent
+    // state either way) and notify JS so the UI shows "Interrupted", not a running
+    // timer over dead air.
+    // On .ended: iOS reports whether it considers resuming appropriate
+    // (.shouldResume). If so, attempt it automatically; the app was never aware
+    // the interruption happened, so an automatic, successful recovery is strictly
+    // better UX than forcing a manual tap. If auto-resume isn't offered or fails,
+    // stay paused and let JS offer an explicit Resume — reusing resumeRecording(),
+    // which already reports success/failure accurately.
+
+    @objc private func handleInterruption(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+        else { return }
+
+        switch type {
+        case .began:
+            guard !isPaused else { return } // already paused (manual or a prior interruption)
+            chunkTimer?.invalidate(); chunkTimer = nil
+            recorder?.pause()
+            pauseStartDate  = Date()
+            isPaused        = true
+            isInterrupted   = true
+            _levelL = 0; _levelR = 0
+            notifyListeners("recordingInterrupted", data: [:])
+
+        case .ended:
+            guard isInterrupted else { return } // this .ended isn't closing an interruption we paused for
+            isInterrupted = false
+
+            var shouldResume = false
+            if let optionsValue = info[AVAudioSessionInterruptionOptionKey] as? UInt {
+                shouldResume = AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
+            }
+
+            if shouldResume && attemptAutoResume() {
+                notifyListeners("recordingResumed", data: [:])
+            } else {
+                notifyListeners("recordingInterruptionEnded", data: ["canAutoResume": false])
+            }
+
+        @unknown default:
+            break
+        }
+    }
+
+    /// Mirrors resumeRecording()'s recovery steps for the one caller that cannot
+    /// reject a CAPPluginCall back to JS — there is no pending call here, only a
+    /// system notification. Kept separate (small duplication) rather than reusing
+    /// resumeRecording() directly, so a change to the user-initiated path's error
+    /// reporting can't silently change automatic-recovery behavior and vice versa.
+    private func attemptAutoResume() -> Bool {
+        guard isPaused, let recorder else { return false }
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            return false
+        }
+        guard recorder.record() else { return false }
+
+        if let ps = pauseStartDate {
+            pausedAccumMs += Date().timeIntervalSince(ps) * 1000
+        }
+        isPaused = false
+        currentChunkStart = elapsedMs()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.chunkTimer = Timer.scheduledTimer(
+                withTimeInterval: Double(self.chunkDurMs) / 1000.0,
+                repeats: true
+            ) { [weak self] _ in self?.rotateChunk() }
+        }
+        return true
     }
 
     // ── pauseRecording ─────────────────────────────────────────────────────
@@ -254,6 +353,8 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func stopRecording(_ call: CAPPluginCall) {
         chunkTimer?.invalidate(); chunkTimer = nil
         levelTimer?.invalidate(); levelTimer = nil
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.interruptionNotification, object: nil)
+        isInterrupted = false
 
         // Stop BEFORE reading — AVAudioRecorder writes the MOOV atom on stop().
         // Reading before stop() gives incomplete M4A that browsers can't play.
