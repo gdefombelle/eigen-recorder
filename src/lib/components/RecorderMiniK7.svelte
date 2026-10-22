@@ -15,6 +15,8 @@
   import { authStore, isAuthenticated } from '$lib/auth/auth';
   import { t, langStore } from '$lib/i18n/index';
   import SyncModeToggle from './SyncModeToggle.svelte';
+  import VoiceProcessingToggle from './VoiceProcessingToggle.svelte';
+  import { isNative } from '$lib/platform';
   import StreamingIndicator from './StreamingIndicator.svelte';
   import { openLiveRoom, shareLiveRoom } from '$lib/recorder/liveRoom';
   import { keychainErrorStore } from '$lib/auth/pkceFlow';
@@ -290,6 +292,14 @@
           mode={store.syncMode}
           online={store.isOnline}
           onchange={(m) => recorderStore.setSyncMode(m)}
+        />
+      {/if}
+
+      <!-- Voice Processing I/O — iOS only, same ready/pre-REC gate as sync mode -->
+      {#if store.state === 'ready' && store.chunks.length === 0 && isNative()}
+        <VoiceProcessingToggle
+          enabled={store.voiceProcessingEnabled}
+          onchange={(v) => recorderStore.setVoiceProcessing(v)}
         />
       {/if}
 

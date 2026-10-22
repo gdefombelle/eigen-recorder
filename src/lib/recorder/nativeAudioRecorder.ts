@@ -41,12 +41,15 @@ export class NativeAudioRecorder {
 
   // ── Start ───────────────────────────────────────────────────
 
-  async start(sessionId: string, timesliceMs = 5000): Promise<void> {
+  async start(sessionId: string, timesliceMs = 5000, voiceProcessing = false): Promise<void> {
     await EigenAudio.startRecording({
       sessionId,
       chunkDurationMs: timesliceMs,
-      stereo:          true,
+      // Voice Processing I/O is a single-voice path — stereo capture doesn't
+      // apply together with it (see EigenAudioPlugin.swift's startRecording).
+      stereo:          !voiceProcessing,
       sampleRate:      48000,
+      voiceProcessing,
     });
     this._startPolling();
     this._listeners = await Promise.all([

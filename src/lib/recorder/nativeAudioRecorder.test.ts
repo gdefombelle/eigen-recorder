@@ -25,17 +25,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockResumeRecording = vi.fn();
 const mockPauseRecording  = vi.fn();
+const mockStartRecording  = vi.fn().mockResolvedValue(undefined);
+const mockAddListener     = vi.fn().mockResolvedValue({ remove: vi.fn() });
 
 vi.mock('$lib/plugins/eigenAudio', () => ({
   EigenAudio: {
     requestPermission: vi.fn(),
-    startRecording:    vi.fn(),
+    startRecording:    (...args: unknown[]) => mockStartRecording(...args),
     pauseRecording:    (...args: unknown[]) => mockPauseRecording(...args),
     resumeRecording:   (...args: unknown[]) => mockResumeRecording(...args),
     stopRecording:     vi.fn(),
     getElapsedMs:      vi.fn(),
     getMicLevel:       vi.fn(),
     mergeChunks:       vi.fn(),
+    addListener:       (...args: unknown[]) => mockAddListener(...args),
   },
 }));
 
@@ -44,6 +47,32 @@ import { NativeAudioRecorder } from './nativeAudioRecorder';
 beforeEach(() => {
   mockResumeRecording.mockReset();
   mockPauseRecording.mockReset();
+  mockStartRecording.mockReset().mockResolvedValue(undefined);
+  mockAddListener.mockReset().mockResolvedValue({ remove: vi.fn() });
+});
+
+describe('NativeAudioRecorder.start() — Voice Processing I/O plumbing', () => {
+  it('passes voiceProcessing through and forces mono (stereo: false) when enabled', async () => {
+    const recorder = new NativeAudioRecorder();
+
+    await recorder.start('session-1', 5000, true);
+
+    expect(mockStartRecording).toHaveBeenCalledWith(expect.objectContaining({
+      voiceProcessing: true,
+      stereo:          false,
+    }));
+  });
+
+  it('defaults to stereo capture with voiceProcessing off', async () => {
+    const recorder = new NativeAudioRecorder();
+
+    await recorder.start('session-1', 5000);
+
+    expect(mockStartRecording).toHaveBeenCalledWith(expect.objectContaining({
+      voiceProcessing: false,
+      stereo:          true,
+    }));
+  });
 });
 
 describe('NativeAudioRecorder.resume() — propagates native failure', () => {

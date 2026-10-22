@@ -137,6 +137,13 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         chunkDurMs = call.getInt("chunkDurationMs") ?? 5000
         let stereo = call.getBool("stereo")         ?? true
         let sr     = Double(call.getInt("sampleRate") ?? 48_000)
+        // Voice Processing I/O: hardware-level AGC + noise suppression + echo
+        // cancellation, applied by the active AVAudioSession route — AVAudioRecorder
+        // has no per-node equivalent to AVAudioInputNode.isVoiceProcessingEnabled
+        // (that API is AVAudioEngine-only), so session mode is the only lever here.
+        // Built for a single dominant voice close to the mic — offered for solo
+        // Dictaphone Mode, not multi-speaker Interview capture.
+        let voiceProcessing = call.getBool("voiceProcessing") ?? false
 
         savedChunks      = []
         chunkIndex       = 0
@@ -147,7 +154,18 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         // 1. Configure AVAudioSession
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
+            if voiceProcessing {
+                // .voiceChat/.videoChat require .playAndRecord — a real category
+                // change from plain .record, not just a mode flag. .videoChat over
+                // .voiceChat: better retained fidelity for an archival voice note,
+                // .voiceChat is tuned for telephony bandwidth. .defaultToSpeaker
+                // keeps output on the speaker (unused here — no playback — but set
+                // for correctness since .playAndRecord otherwise defaults to the
+                // earpiece route on some devices).
+                try session.setCategory(.playAndRecord, mode: .videoChat, options: [.allowBluetooth, .defaultToSpeaker])
+            } else {
+                try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
+            }
             try session.setActive(true)
 
             // Request stereo after activation (requires active route)

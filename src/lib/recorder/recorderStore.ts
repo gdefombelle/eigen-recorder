@@ -64,6 +64,7 @@ const INITIAL: RecorderStoreState = {
   framesStreamed:   0,
   streamPulse:      false,
   wasInterrupted:   false,
+  voiceProcessingEnabled: false,
 };
 
 // ── Internal mutable state ───────────────────────────────────
@@ -492,6 +493,11 @@ export const recorderStore = {
       const online     = get(recorderStore).isOnline;
       const authed     = isAuthenticated();
       const shouldSync = authed && online;
+      // Default ON for solo Dictaphone Mode (session_type 'voice_note') on iOS
+      // only — Voice Processing I/O's AGC locks onto one dominant voice, the
+      // opposite of what multi-speaker Interview capture needs. User-visible
+      // and overridable via setVoiceProcessing() before the first REC.
+      const defaultVoiceProcessing = isNative() && params.session_type === 'voice_note';
 
       const draft: LocalKnowledgeSession = {
         local_session_id:     generateLocalId(),
@@ -622,7 +628,7 @@ export const recorderStore = {
             };
             await offlineStorage.saveSession(withDevice);
 
-            transition('ready', { currentSession: withDevice, chunks: [], elapsedMs: 0, totalSizeBytes: 0 });
+            transition('ready', { currentSession: withDevice, chunks: [], elapsedMs: 0, totalSizeBytes: 0, voiceProcessingEnabled: defaultVoiceProcessing });
             return withDevice.local_session_id;
 
           } else {
@@ -675,7 +681,7 @@ export const recorderStore = {
             };
             await offlineStorage.saveSession(withDevice);
 
-            transition('ready', { currentSession: withDevice, chunks: [], elapsedMs: 0, totalSizeBytes: 0 });
+            transition('ready', { currentSession: withDevice, chunks: [], elapsedMs: 0, totalSizeBytes: 0, voiceProcessingEnabled: defaultVoiceProcessing });
             return withDevice.local_session_id;
           }
 
@@ -696,7 +702,7 @@ export const recorderStore = {
 
       const ready = { ...draft, status: 'ready' as const };
       await offlineStorage.saveSession(ready);
-      transition('ready', { currentSession: ready, chunks: [], elapsedMs: 0, totalSizeBytes: 0 });
+      transition('ready', { currentSession: ready, chunks: [], elapsedMs: 0, totalSizeBytes: 0, voiceProcessingEnabled: defaultVoiceProcessing });
       return ready.local_session_id;
 
     } finally {
@@ -732,7 +738,12 @@ export const recorderStore = {
       chunks,
       totalSizeBytes,
       elapsedMs:      session.duration_ms,
+      voiceProcessingEnabled: isNative() && session.session_type === 'voice_note',
     }));
+  },
+
+  setVoiceProcessing(enabled: boolean) {
+    update((s) => ({ ...s, voiceProcessingEnabled: enabled }));
   },
 
   // ── Microphone ────────────────────────────────────────────
@@ -770,7 +781,7 @@ export const recorderStore = {
   // ── Recording controls ────────────────────────────────────
 
   async startRecording(): Promise<void> {
-    const { currentSession, state, chunkDurationMs, syncMode, isOnline } = get(recorderStore);
+    const { currentSession, state, chunkDurationMs, syncMode, isOnline, voiceProcessingEnabled } = get(recorderStore);
     if (!currentSession) return;
     if (state !== 'ready') return;
 
@@ -892,7 +903,7 @@ export const recorderStore = {
       };
       recorder = native;
       try {
-        await native.start(currentSession.local_session_id, chunkDurationMs);
+        await native.start(currentSession.local_session_id, chunkDurationMs, voiceProcessingEnabled);
       } catch (err) {
         setError(`Native recording failed: ${err instanceof Error ? err.message : String(err)}`);
         recorder = null;

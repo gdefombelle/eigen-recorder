@@ -259,6 +259,14 @@ export interface RecorderStoreState {
   // system-caused stop is never mistaken for an active recording with the timer
   // quietly ticking over dead air.
   wasInterrupted: boolean;
+  // Voice Processing I/O (AVAudioSession .videoChat mode: hardware AGC + noise
+  // suppression + echo cancellation) for the NEXT recording start — iOS only,
+  // read by startRecording()'s native branch. Defaults true for a solo
+  // Dictaphone Mode session (session_type 'voice_note'), false otherwise;
+  // user-overridable via setVoiceProcessing() before the first REC. Built for
+  // one dominant voice — its AGC working against a second speaker is exactly
+  // why this isn't on by default for Interview sessions.
+  voiceProcessingEnabled: boolean;
 }
 
 export interface CreateSessionParams {

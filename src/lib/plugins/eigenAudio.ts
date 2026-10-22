@@ -20,6 +20,14 @@ export interface EigenAudioStartOptions {
   chunkDurationMs: number;
   stereo:          boolean;
   sampleRate:      number;
+  /**
+   * Voice Processing I/O (AGC + noise suppression + echo cancellation) via
+   * AVAudioSession mode .videoChat — hardware-level, tuned for a single
+   * dominant voice close to the mic. Built for solo Dictaphone Mode, not
+   * multi-speaker Interview capture (its AGC locks onto one voice and can
+   * suppress a second speaker; it also forces mono). Defaults to false.
+   */
+  voiceProcessing?: boolean;
 }
 
 export interface EigenAudioStopResult {
