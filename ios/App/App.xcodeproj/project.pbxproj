@@ -17,6 +17,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		EA000002CAFECAFE00000001 /* EigenAudioPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000001CAFECAFE00000001 /* EigenAudioPlugin.swift */; };
 		EA000006CAFECAFE00000001 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000005CAFECAFE00000001 /* MainViewController.swift */; };
+		EA000007CAFECAFE00000001 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000008CAFECAFE00000001 /* SceneDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +34,7 @@
 		C48F21AD30666FF100F5E6A1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		EA000001CAFECAFE00000001 /* EigenAudioPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EigenAudioPlugin.swift; sourceTree = "<group>"; };
 		EA000005CAFECAFE00000001 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
+		EA000008CAFECAFE00000001 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -72,6 +74,7 @@
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				EA000001CAFECAFE00000001 /* EigenAudioPlugin.swift */,
 				EA000005CAFECAFE00000001 /* MainViewController.swift */,
+				EA000008CAFECAFE00000001 /* SceneDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -166,6 +169,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				EA000002CAFECAFE00000001 /* EigenAudioPlugin.swift in Sources */,
 				EA000006CAFECAFE00000001 /* MainViewController.swift in Sources */,
+				EA000007CAFECAFE00000001 /* SceneDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

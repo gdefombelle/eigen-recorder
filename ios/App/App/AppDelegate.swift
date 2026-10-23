@@ -72,4 +72,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
+    // MARK: - UISceneSession Lifecycle
+    //
+    // Required since newer iOS/SDK combinations hard-crash at launch without a
+    // declared scene lifecycle ("UIScene life cycle is required for apps built
+    // with this SDK"). The actual window/rootViewController setup is still
+    // storyboard-driven (UIApplicationSceneManifest's UISceneStoryboardFile in
+    // Info.plist) — unchanged from how this app has always booted.
+
+    func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+    }
+
+    func application(_ application: UIApplication, didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
+    }
+
 }
