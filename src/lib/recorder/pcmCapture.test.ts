@@ -1,17 +1,23 @@
 /**
- * PcmCapture.resume() — mic re-acquisition.
+ * PcmCapture.pause()/resume() — full pipeline rebuild on resume.
  *
- * Gabriel's on-device report, second round: after Resume the vu meter itself
- * stops moving — not just the transcript. That rules out a pure networking/
- * timing bug and points at the capture graph: ctx.resume() can report the
- * AudioContext as 'running' again while the underlying getUserMedia track
- * stays muted/ended (an iOS/WebKit quirk independent of AudioContext state),
- * so the worklet is fed silence with nothing anywhere reporting a failure.
+ * Gabriel's on-device reports, in order:
+ *   1. ctx.resume() not awaited/checked → fixed, no effect.
+ *   2. ctx.state checked but re-acquiring just the mic track into the same
+ *      (resumed) context → fixed, no effect: the vu meter still went flat
+ *      and stayed flat after Resume.
+ * That second result means the AudioContext itself can go "zombie" on iOS —
+ * ctx.resume() resolves, ctx.state reads 'running', but the context never
+ * reconnects to real hardware input again, with no signal anywhere in the
+ * Web Audio API to detect it.
  *
- * resume() now re-acquires a fresh mic track and reconnects it into the
- * still-live graph instead of trusting ctx.state alone. These tests pin that
- * mechanical behavior — mocked AudioContext/AudioWorkletNode/getUserMedia,
- * since none of the real Web Audio API exists in this test environment.
+ * So pause() now tears down the entire pipeline (closes the AudioContext,
+ * stops the mic track) and resume() rebuilds it completely from scratch —
+ * new AudioContext, new getUserMedia track, new worklet — exactly the code
+ * path start() uses, which we know works (an uninterrupted recording
+ * transcribes correctly). These tests pin that mechanical behavior against
+ * a mocked AudioContext/AudioWorkletNode/getUserMedia, since none of the
+ * real Web Audio API exists in this test environment.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -29,7 +35,6 @@ class FakeAudioContext {
   destination = {};
   audioWorklet = { addModule: vi.fn().mockResolvedValue(undefined) };
   resume = vi.fn(async () => { this.state = 'running'; });
-  suspend = vi.fn(async () => { this.state = 'suspended'; });
   close  = vi.fn(async () => { this.state = 'closed'; });
   createMediaStreamSource      = vi.fn(() => new FakeNode());
   createGain                   = vi.fn(() => new FakeNode());
@@ -68,37 +73,46 @@ beforeEach(() => {
 });
 
 describe('PcmCapture pause()/resume()', () => {
-  it('re-acquires the microphone and reconnects it into the graph on resume', async () => {
+  it('closes the context on pause and builds a brand new one on resume', async () => {
     const capture = new PcmCapture();
     await capture.start();
     expect(mockGetUserMedia).toHaveBeenCalledTimes(1);
 
-    const ctx = ctxInstances[0]!;
-    const firstSource = ctx.createMediaStreamSource.mock.results[0]!.value as FakeNode;
+    const firstCtx    = ctxInstances[0]!;
+    const firstStream = await mockGetUserMedia.mock.results[0]!.value;
+    const firstTrack  = firstStream.getTracks()[0];
 
     await capture.pause();
-    expect(ctx.state).toBe('suspended');
+    expect(firstCtx.close).toHaveBeenCalled();
+    expect(firstTrack.stop).toHaveBeenCalled();
 
     await capture.resume();
 
     expect(mockGetUserMedia).toHaveBeenCalledTimes(2); // fresh track pulled on resume
-    expect(firstSource.disconnect).toHaveBeenCalled();  // stale source dropped
-
-    const secondSource = ctx.createMediaStreamSource.mock.results[1]!.value as FakeNode;
-    expect(secondSource).not.toBe(firstSource);
-    expect(secondSource.connect).toHaveBeenCalled();    // new source wired back in
+    expect(ctxInstances).toHaveLength(2);
+    expect(ctxInstances[1]).not.toBe(firstCtx);        // genuinely new AudioContext, not the old one revived
   });
 
-  it('throws instead of silently resuming when the context never actually reports running', async () => {
+  it('exposes a usable amplifiedStream after resume for the caller to rebind its backup recorder', async () => {
+    const capture = new PcmCapture();
+    await capture.start();
+    const streamBeforePause = capture.amplifiedStream;
+
+    await capture.pause();
+    await capture.resume();
+
+    const streamAfterResume = capture.amplifiedStream;
+    expect(streamAfterResume).not.toBeNull();
+    expect(streamAfterResume).not.toBe(streamBeforePause); // old one belonged to the closed context
+  });
+
+  it('rejects instead of silently succeeding when the rebuilt pipeline fails to acquire a mic', async () => {
     const capture = new PcmCapture();
     await capture.start();
     await capture.pause();
 
-    const ctx = ctxInstances[0]!;
-    // Simulate iOS silently declining the resume: resume() resolves but the
-    // context stays suspended — exactly the case ctx.state alone can't catch.
-    ctx.resume = vi.fn(async () => {});
+    mockGetUserMedia.mockRejectedValueOnce(new Error('NotAllowedError'));
 
-    await expect(capture.resume()).rejects.toThrow(/did not resume/);
+    await expect(capture.resume()).rejects.toThrow(/NotAllowedError/);
   });
 });

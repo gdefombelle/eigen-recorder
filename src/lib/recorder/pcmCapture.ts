@@ -76,10 +76,6 @@ registerProcessor('pcm-frame-processor', PcmFrameProcessor);
 // Public API
 // ---------------------------------------------------------------------------
 
-function contextState(ctx: AudioContext | null): AudioContextState | undefined {
-  return ctx?.state;
-}
-
 export class PcmCapture {
   private ctx:         AudioContext | null                         = null;
   private workletNode: AudioWorkletNode | null                     = null;
@@ -112,6 +108,69 @@ export class PcmCapture {
   // ── Start ─────────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {
+    this._startEpoch = Date.now();
+    this._pausedMs   = 0;
+    this._pauseEpoch = 0;
+    this._frameIndex = 0;
+    await this._buildPipeline();
+  }
+
+  // ── Pause / Resume ────────────────────────────────────────────────────────
+
+  async pause(): Promise<void> {
+    if (!this.ctx) return;
+    this._pauseEpoch = Date.now();
+    this._teardownPipeline();
+  }
+
+  // Two narrower fixes (await+verify ctx.resume(), then re-acquire just the
+  // mic track into the existing context) both failed on-device: after
+  // Resume the vu meter stayed flat — nothing was being captured at all,
+  // not just mistimed or unsent. That means the AudioContext itself can end
+  // up "zombied" by iOS/WebKit: ctx.resume() can resolve and ctx.state can
+  // read 'running' while the context never actually reconnects to real
+  // hardware input again. There is no reliable signal from the Web Audio
+  // API to detect that case — so resume() no longer tries to revive the old
+  // context at all. It tears down every node and the old context, and
+  // builds a brand new pipeline (new AudioContext, new getUserMedia track,
+  // new worklet) exactly the way start() does — which we know works,
+  // because an uninterrupted recording transcribes correctly. Frame/pause
+  // bookkeeping (_frameIndex, _startEpoch, _pausedMs) is untouched, so
+  // timestamps stay continuous across the gap.
+  async resume(): Promise<void> {
+    if (!this._pauseEpoch) return;
+    this._pausedMs  += Date.now() - this._pauseEpoch;
+    this._pauseEpoch = 0;
+    this._teardownPipeline();
+    await this._buildPipeline();
+  }
+
+  private _isIOS(): boolean {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
+  // On iOS/WKWebView, autoGainControl MUST be true: without it the hardware ADC
+  // operates at minimum analog gain (~-48 dBFS), producing near-silent capture.
+  // On desktop/Android the raw signal is already at a usable level so we can
+  // disable AGC to preserve natural dynamics.
+  private _micConstraints(): MediaStreamConstraints {
+    return {
+      audio: {
+        channelCount:      1,
+        echoCancellation:  false,
+        noiseSuppression:  false,
+        autoGainControl:   this._isIOS(),
+      },
+    };
+  }
+
+  // Builds the entire capture graph from scratch: getUserMedia → AudioContext
+  // → gain → worklet, exposing the same amplifiedStream shape each time so a
+  // caller rebinding a backup MediaRecorder after resume() gets a working
+  // stream (the old ampDest.stream from before pause() is gone — it belonged
+  // to the closed context — so that rebind is the caller's responsibility).
+  private async _buildPipeline(): Promise<void> {
     this._stream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
 
     // Prefer 16 kHz context so the worklet resamples as little as possible.
@@ -125,8 +184,9 @@ export class PcmCapture {
     }
     this.ctx = ctx;
 
-    // iOS AudioContext starts suspended until a user-gesture touch; since
-    // start() is called from the REC button handler we can resume immediately.
+    // AudioContext starts suspended until a user-gesture touch; both the
+    // initial start() (REC button) and resume() (Resume button) are called
+    // from a tap handler, so resuming immediately is safe here.
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
@@ -163,11 +223,6 @@ export class PcmCapture {
     this.workletNode.connect(this.sink);
     this.sink.connect(ctx.destination);
 
-    this._startEpoch = Date.now();
-    this._pausedMs   = 0;
-    this._pauseEpoch = 0;
-    this._frameIndex = 0;
-
     this.workletNode.port.onmessage = (ev: MessageEvent<{ pcm: ArrayBuffer; rms: number }>) => {
       const { pcm, rms } = ev.data;
       const idx    = this._frameIndex++;
@@ -188,75 +243,7 @@ export class PcmCapture {
     };
   }
 
-  // ── Pause / Resume ────────────────────────────────────────────────────────
-
-  async pause(): Promise<void> {
-    if (this.ctx?.state === 'running') {
-      this._pauseEpoch = Date.now();
-      await this.ctx.suspend().catch(() => {});
-    }
-  }
-
-  // Resuming the AudioContext alone isn't enough: on iOS, suspending it for
-  // more than a moment can leave the underlying getUserMedia track muted or
-  // ended by the system, independent of ctx.state — which can read 'running'
-  // right after resume() while the worklet is fed silence forever (the vu
-  // meter goes flat and stays flat, no error anywhere, because nothing
-  // actually failed in a way ctx.state reflects). Re-acquiring the mic and
-  // reconnecting it into the still-live graph (worklet/gain/sink untouched)
-  // is the only way to guarantee real samples are flowing again, rather than
-  // trusting a context state that doesn't track the track underneath it.
-  async resume(): Promise<void> {
-    if (this.ctx?.state !== 'suspended' || !this._pauseEpoch) return;
-    this._pausedMs  += Date.now() - this._pauseEpoch;
-    this._pauseEpoch = 0;
-    await this.ctx.resume().catch(() => {});
-    await this._reacquireMic();
-    // ctx.state changes as an external side effect of resume() — routed
-    // through a function call so TS doesn't (wrongly) carry the 'suspended'
-    // narrowing from the guard above across the await.
-    if (contextState(this.ctx) !== 'running') {
-      throw new Error('Audio context did not resume — recording is not capturing.');
-    }
-  }
-
-  private _isIOS(): boolean {
-    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  }
-
-  // On iOS/WKWebView, autoGainControl MUST be true: without it the hardware ADC
-  // operates at minimum analog gain (~-48 dBFS), producing near-silent capture.
-  // On desktop/Android the raw signal is already at a usable level so we can
-  // disable AGC to preserve natural dynamics.
-  private _micConstraints(): MediaStreamConstraints {
-    return {
-      audio: {
-        channelCount:      1,
-        echoCancellation:  false,
-        noiseSuppression:  false,
-        autoGainControl:   this._isIOS(),
-      },
-    };
-  }
-
-  // Drops the old getUserMedia track and source node, gets a fresh one, and
-  // reconnects it where the old one was — the rest of the graph (gainNode,
-  // workletNode, ampDest, sink) is untouched so frame bookkeeping and the
-  // backup recorder's stream reference stay valid across a resume.
-  private async _reacquireMic(): Promise<void> {
-    if (!this.ctx || !this.gainNode) return;
-    const freshStream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
-    this.source?.disconnect();
-    this._stream?.getTracks().forEach((t) => t.stop());
-    this._stream = freshStream;
-    this.source  = this.ctx.createMediaStreamSource(freshStream);
-    this.source.connect(this.gainNode);
-  }
-
-  // ── Stop ──────────────────────────────────────────────────────────────────
-
-  stop(): void {
+  private _teardownPipeline(): void {
     this.workletNode?.port.close();
     this.workletNode?.disconnect();
     this.workletNode = null;
@@ -271,6 +258,12 @@ export class PcmCapture {
     this.ctx = null;
     this._stream?.getTracks().forEach((t) => t.stop());
     this._stream = null;
+  }
+
+  // ── Stop ──────────────────────────────────────────────────────────────────
+
+  stop(): void {
+    this._teardownPipeline();
   }
 
   // ── Elapsed time (excludes paused intervals) ──────────────────────────────

@@ -95,6 +95,26 @@ let _autoSyncing = false; // guards against overlapping autoSyncPending() sweeps
 // Tracks upload promises (local mode) so _finalizeStop can flush before POST /stop
 const _inflightUploads = new Map<string, Promise<void>>();
 
+// Starts (or restarts, after a PCM resume rebuilds the capture graph) the
+// local backup recorder on the given stream. Appends into the existing
+// localBackupBlobs array rather than resetting it, so a rebind after resume
+// doesn't drop whatever the previous MediaRecorder instance already flushed
+// — the final merged file just has a silent gap matching the pause, same as
+// the live stream's own timeline.
+function _startBackupRecorder(stream: MediaStream | null): void {
+  const backupMime = getSupportedMimeType();
+  if (!backupMime || !stream) return;
+  try {
+    const mr = new MediaRecorder(stream, { audioBitsPerSecond: 96_000, mimeType: backupMime });
+    localBackupMimeType = mr.mimeType || backupMime;
+    mr.ondataavailable  = (ev) => { if (ev.data?.size > 0) localBackupBlobs.push(ev.data); };
+    mr.start(10_000);
+    localBackupMR = mr;
+  } catch {
+    // Backup recorder failed — share will be unavailable but streaming continues
+  }
+}
+
 // ── Store ────────────────────────────────────────────────────
 
 const { subscribe, update, set } = writable<RecorderStoreState>(INITIAL);
@@ -851,19 +871,8 @@ export const recorderStore = {
       // Start local backup recorder on the AMPLIFIED stream for Share Audio support.
       // capture.amplifiedStream has the iOS gain stage applied (×10 on iOS, ×1 elsewhere)
       // so the saved file matches what the VU meter and the transcription pipeline see.
-      const backupMime = getSupportedMimeType();
-      if (backupMime && capture.amplifiedStream) {
-        try {
-          const mr = new MediaRecorder(capture.amplifiedStream, { audioBitsPerSecond: 96_000, mimeType: backupMime });
-          localBackupBlobs     = [];
-          localBackupMimeType  = mr.mimeType || backupMime;
-          mr.ondataavailable   = (ev) => { if (ev.data?.size > 0) localBackupBlobs.push(ev.data); };
-          mr.start(10_000);
-          localBackupMR = mr;
-        } catch {
-          // Backup recorder failed — share will be unavailable but streaming continues
-        }
-      }
+      localBackupBlobs = [];
+      _startBackupRecorder(capture.amplifiedStream);
 
       const now = new Date().toISOString();
       const updatedSession: LocalKnowledgeSession = {
@@ -948,11 +957,15 @@ export const recorderStore = {
     if (get(recorderStore).state !== 'recording_offline') return;
 
     if (pcmCapture) {
-      // PCM stream mode — suspend AudioContext (worklet stops, WS stays open)
+      // PCM stream mode — tears down the whole capture graph, not just the
+      // AudioContext (see pcmCapture.ts: suspend()/resume() alone turned out
+      // unreliable on iOS). The backup recorder's track belongs to that now-
+      // closed context, so stop it outright rather than pause() it — there's
+      // nothing left to resume it onto.
       await pcmCapture.pause();
-      if (localBackupMR?.state === 'recording') {
-        localBackupMR.requestData();
-        localBackupMR.pause();
+      if (localBackupMR && localBackupMR.state !== 'inactive') {
+        try { localBackupMR.requestData(); } catch { /* already inactive */ }
+        try { localBackupMR.stop(); } catch { /* already inactive */ }
       }
     } else {
       try {
@@ -984,7 +997,11 @@ export const recorderStore = {
         setError(e instanceof Error ? e.message : 'Could not resume recording — please start a new session.');
         return;
       }
-      if (localBackupMR?.state === 'paused') localBackupMR.resume();
+      // resume() just rebuilt the entire capture graph — a brand new
+      // AudioContext and amplifiedStream, not the one the old backup
+      // recorder was bound to. Start a fresh one on the new stream rather
+      // than resuming the old (now-dead) instance.
+      _startBackupRecorder(pcmCapture.amplifiedStream);
     } else {
       try {
         await recorder?.resume();
