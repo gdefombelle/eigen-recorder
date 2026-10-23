@@ -76,6 +76,10 @@ registerProcessor('pcm-frame-processor', PcmFrameProcessor);
 // Public API
 // ---------------------------------------------------------------------------
 
+function contextState(ctx: AudioContext | null): AudioContextState | undefined {
+  return ctx?.state;
+}
+
 export class PcmCapture {
   private ctx:         AudioContext | null                         = null;
   private workletNode: AudioWorkletNode | null                     = null;
@@ -200,18 +204,31 @@ export class PcmCapture {
 
   // ── Pause / Resume ────────────────────────────────────────────────────────
 
-  pause(): void {
+  async pause(): Promise<void> {
     if (this.ctx?.state === 'running') {
       this._pauseEpoch = Date.now();
-      this.ctx.suspend().catch(() => {});
+      await this.ctx.suspend().catch(() => {});
     }
   }
 
-  resume(): void {
-    if (this.ctx?.state === 'suspended' && this._pauseEpoch) {
-      this._pausedMs   += Date.now() - this._pauseEpoch;
-      this._pauseEpoch  = 0;
-      this.ctx.resume().catch(() => {});
+  // Must actually confirm the context came back to 'running' and throw if it
+  // didn't — ctx.resume() was previously fire-and-forget (void method, result
+  // swallowed with .catch(() => {})), so a resume that iOS silently declined
+  // (not called close enough to the tap's user-gesture window, an interruption
+  // the WebAudio path has no observer for, the OS reclaiming the mic) left the
+  // worklet producing zero frames while the UI kept showing an active
+  // recording with a running timer — no new audio reaches the WebSocket, so
+  // the transcript stops dead at the resume point with nothing to show it.
+  async resume(): Promise<void> {
+    if (this.ctx?.state !== 'suspended' || !this._pauseEpoch) return;
+    this._pausedMs  += Date.now() - this._pauseEpoch;
+    this._pauseEpoch = 0;
+    await this.ctx.resume().catch(() => {});
+    // ctx.state changes as an external side effect of resume() — routed
+    // through a function call so TS doesn't (wrongly) carry the 'suspended'
+    // narrowing from the guard above across the await.
+    if (contextState(this.ctx) !== 'running') {
+      throw new Error('Audio context did not resume — recording is not capturing.');
     }
   }
 

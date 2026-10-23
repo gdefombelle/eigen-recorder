@@ -949,7 +949,7 @@ export const recorderStore = {
 
     if (pcmCapture) {
       // PCM stream mode — suspend AudioContext (worklet stops, WS stays open)
-      pcmCapture.pause();
+      await pcmCapture.pause();
       if (localBackupMR?.state === 'recording') {
         localBackupMR.requestData();
         localBackupMR.pause();
@@ -972,7 +972,18 @@ export const recorderStore = {
     if (get(recorderStore).state !== 'paused') return;
 
     if (pcmCapture) {
-      pcmCapture.resume();
+      try {
+        await pcmCapture.resume();
+      } catch (e) {
+        // The AudioContext declined to actually resume — same failure class as
+        // the native branch below (iOS reclaimed the mic, an interruption the
+        // WebAudio path can't observe, or the resume call landed outside the
+        // tap's user-gesture window). Surfacing this is the whole point: the
+        // worklet is producing zero frames, so silently transitioning to
+        // "recording_offline" would show a live timer over a dead stream.
+        setError(e instanceof Error ? e.message : 'Could not resume recording — please start a new session.');
+        return;
+      }
       if (localBackupMR?.state === 'paused') localBackupMR.resume();
     } else {
       try {
