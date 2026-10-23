@@ -112,21 +112,7 @@ export class PcmCapture {
   // ── Start ─────────────────────────────────────────────────────────────────
 
   async start(): Promise<void> {
-    // On iOS/WKWebView, autoGainControl MUST be true: without it the hardware ADC
-    // operates at minimum analog gain (~-48 dBFS), producing near-silent capture.
-    // On desktop/Android the raw signal is already at a usable level so we can
-    // disable AGC to preserve natural dynamics.
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-    this._stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount:      1,
-        echoCancellation:  false,
-        noiseSuppression:  false,
-        autoGainControl:   isIOS,
-      },
-    });
+    this._stream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
 
     // Prefer 16 kHz context so the worklet resamples as little as possible.
     // If the browser ignores our hint (common on iOS), the worklet resamples
@@ -162,7 +148,7 @@ export class PcmCapture {
     // The worklet already clamps samples to ±1, so clipping from a very loud
     // input degrades gracefully without crashing the pipeline.
     this.gainNode            = ctx.createGain();
-    this.gainNode.gain.value = isIOS ? 10 : 1;
+    this.gainNode.gain.value = this._isIOS() ? 10 : 1;
 
     // Expose the gained signal as a proper MediaStream so the backup MediaRecorder
     // records at the boosted level (matching the VU meter), not the raw quiet signal.
@@ -211,25 +197,61 @@ export class PcmCapture {
     }
   }
 
-  // Must actually confirm the context came back to 'running' and throw if it
-  // didn't — ctx.resume() was previously fire-and-forget (void method, result
-  // swallowed with .catch(() => {})), so a resume that iOS silently declined
-  // (not called close enough to the tap's user-gesture window, an interruption
-  // the WebAudio path has no observer for, the OS reclaiming the mic) left the
-  // worklet producing zero frames while the UI kept showing an active
-  // recording with a running timer — no new audio reaches the WebSocket, so
-  // the transcript stops dead at the resume point with nothing to show it.
+  // Resuming the AudioContext alone isn't enough: on iOS, suspending it for
+  // more than a moment can leave the underlying getUserMedia track muted or
+  // ended by the system, independent of ctx.state — which can read 'running'
+  // right after resume() while the worklet is fed silence forever (the vu
+  // meter goes flat and stays flat, no error anywhere, because nothing
+  // actually failed in a way ctx.state reflects). Re-acquiring the mic and
+  // reconnecting it into the still-live graph (worklet/gain/sink untouched)
+  // is the only way to guarantee real samples are flowing again, rather than
+  // trusting a context state that doesn't track the track underneath it.
   async resume(): Promise<void> {
     if (this.ctx?.state !== 'suspended' || !this._pauseEpoch) return;
     this._pausedMs  += Date.now() - this._pauseEpoch;
     this._pauseEpoch = 0;
     await this.ctx.resume().catch(() => {});
+    await this._reacquireMic();
     // ctx.state changes as an external side effect of resume() — routed
     // through a function call so TS doesn't (wrongly) carry the 'suspended'
     // narrowing from the guard above across the await.
     if (contextState(this.ctx) !== 'running') {
       throw new Error('Audio context did not resume — recording is not capturing.');
     }
+  }
+
+  private _isIOS(): boolean {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+           (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
+  // On iOS/WKWebView, autoGainControl MUST be true: without it the hardware ADC
+  // operates at minimum analog gain (~-48 dBFS), producing near-silent capture.
+  // On desktop/Android the raw signal is already at a usable level so we can
+  // disable AGC to preserve natural dynamics.
+  private _micConstraints(): MediaStreamConstraints {
+    return {
+      audio: {
+        channelCount:      1,
+        echoCancellation:  false,
+        noiseSuppression:  false,
+        autoGainControl:   this._isIOS(),
+      },
+    };
+  }
+
+  // Drops the old getUserMedia track and source node, gets a fresh one, and
+  // reconnects it where the old one was — the rest of the graph (gainNode,
+  // workletNode, ampDest, sink) is untouched so frame bookkeeping and the
+  // backup recorder's stream reference stay valid across a resume.
+  private async _reacquireMic(): Promise<void> {
+    if (!this.ctx || !this.gainNode) return;
+    const freshStream = await navigator.mediaDevices.getUserMedia(this._micConstraints());
+    this.source?.disconnect();
+    this._stream?.getTracks().forEach((t) => t.stop());
+    this._stream = freshStream;
+    this.source  = this.ctx.createMediaStreamSource(freshStream);
+    this.source.connect(this.gainNode);
   }
 
   // ── Stop ──────────────────────────────────────────────────────────────────
