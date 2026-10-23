@@ -267,6 +267,12 @@ export interface RecorderStoreState {
   // one dominant voice — its AGC working against a second speaker is exactly
   // why this isn't on by default for Interview sessions.
   voiceProcessingEnabled: boolean;
+  // Granular progress during the 'stopping' state, so "Saving…" isn't a mute
+  // wait — a stable key (not translated text: this store is read by both
+  // FR/EN UI) the UI maps to copy. null outside 'stopping', or briefly while
+  // 'stopping' covers a phase this doesn't track yet (e.g. the native
+  // recorder decoding its last chunk, before _finalizeStop() even starts).
+  savingStep: 'uploading' | 'finalizing' | null;
 }
 
 export interface CreateSessionParams {

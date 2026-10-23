@@ -3,8 +3,9 @@
   import EndMeetingDialog from './EndMeetingDialog.svelte';
   import { langStore } from '$lib/i18n/index';
 
-  let { state: recState, onrec, onpause, onresume, onstop }: {
+  let { state: recState, savingStep = null, onrec, onpause, onresume, onstop }: {
     state: RecorderState;
+    savingStep?: 'uploading' | 'finalizing' | null;
     onrec?: () => void;
     onpause?: () => void;
     onresume?: () => void;
@@ -53,10 +54,21 @@
     </button>
 
   {:else if isStopping}
-    <!-- Clean saving state — no buttons, just status -->
+    <!-- Clean saving state — no buttons, just status. Granular when
+         savingStep is known (upload vs backend finalize), so the wait isn't
+         an opaque "Saving…" the whole time — particularly over a slow
+         connection, where this is the only feedback the user has. -->
     <div class="saving-state" aria-live="polite">
       <span class="saving-dot"></span>
-      <span class="saving-label">{isFr ? 'Sauvegarde en cours…' : 'Saving recording…'}</span>
+      <span class="saving-label">
+        {#if savingStep === 'uploading'}
+          {isFr ? "Envoi de l'audio…" : 'Uploading audio…'}
+        {:else if savingStep === 'finalizing'}
+          {isFr ? 'Finalisation…' : 'Finalizing…'}
+        {:else}
+          {isFr ? 'Sauvegarde en cours…' : 'Saving recording…'}
+        {/if}
+      </span>
     </div>
 
   {:else if canControl}

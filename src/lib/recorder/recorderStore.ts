@@ -65,6 +65,7 @@ const INITIAL: RecorderStoreState = {
   streamPulse:      false,
   wasInterrupted:   false,
   voiceProcessingEnabled: false,
+  savingStep:       null,
 };
 
 // ── Internal mutable state ───────────────────────────────────
@@ -375,12 +376,14 @@ async function _finalizeStop(
 
   // Local mode: flush any pending chunk uploads before POST /stop
   if (ksId && isOnline && syncMode !== 'local') {
+    update((s) => ({ ...s, savingStep: 'uploading' }));
     await _flushUploads(session);
   }
 
   let backendStopped = false;
 
   if (ksId && isOnline && syncMode !== 'local') {
+    update((s) => ({ ...s, savingStep: 'finalizing' }));
     try {
       await _stopSessionBackend(session, ksId, syncMode);
       backendStopped = true;
@@ -415,6 +418,7 @@ async function _finalizeStop(
     currentSession:   updatedSession,
     elapsedMs:        finalMs,
     micLevel:         0,
+    savingStep:       null,
   }));
 }
 
@@ -993,7 +997,7 @@ export const recorderStore = {
     const { currentSession } = get(recorderStore);
     if (!currentSession) return;
 
-    transition('stopping');
+    transition('stopping', { savingStep: null });
     stopTimer();
 
     // ── PCM STREAM MODE ────────────────────────────────────────────────────

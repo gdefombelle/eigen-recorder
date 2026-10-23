@@ -210,6 +210,11 @@
   {#if session}
     <div class="session-info-bar">
       <span class="session-type-tag">{SESSION_TYPE_LABELS[session.session_type]}</span>
+      {#if isNative() && store.voiceProcessingEnabled}
+        <span class="vp-badge" title="Voice enhancement active — reduces background noise">
+          <span aria-hidden="true">✦</span> Enhanced
+        </span>
+      {/if}
       <span class="session-title-text">{session.title}</span>
     </div>
   {/if}
@@ -440,6 +445,7 @@
       <div class="controls-pinned">
         <RecorderControls
           state={store.state}
+          savingStep={store.savingStep}
           onrec={handleRec}
           onpause={handlePause}
           onresume={handleResume}
@@ -540,6 +546,19 @@
     border-bottom: 1px solid var(--ev-border);
     flex-shrink: 0;
     min-height: 36px;
+  }
+  .vp-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--ev-blue);
+    background: rgba(154,209,255,0.1);
+    padding: 2px 7px;
+    border-radius: var(--r-full);
+    flex-shrink: 0;
   }
   .session-type-tag {
     font-size: 0.6rem;
