@@ -333,21 +333,27 @@ public class EigenAudioPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        // A pause can outlast an iOS audio-session interruption (call, Siri, another
-        // app, or the OS reclaiming the session in the background) with no signal to
-        // this plugin. Reactivating before record() is the only way resume can succeed
-        // in that case; without it record() silently returns false and recording never
-        // actually continues even though the call used to resolve as if it had.
-        do {
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            call.reject("Could not reactivate the audio session.", "SESSION_REACTIVATE_FAILED", error)
-            return
-        }
-
-        guard recorder.record() else {
-            call.reject("The system declined to resume recording.", "RECORD_FAILED")
-            return
+        // Try resuming on the session as-is first. Reactivating unconditionally
+        // (the previous version of this fix) reset the Voice Processing I/O unit
+        // on every ordinary manual pause/resume, even though the session was
+        // never actually deactivated — setActive(true) on an already-active
+        // .videoChat/VPIO session can glitch or briefly silence the resumed
+        // audio, which is exactly the "pause, then the transcript after Resume
+        // is gone" symptom. Only reactivate when record() actually fails, which
+        // is also the one case this matters: a pause that outlasted a silent
+        // iOS session teardown (call, Siri, another app, a background reclaim)
+        // with no notification to this plugin.
+        if !recorder.record() {
+            do {
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch {
+                call.reject("Could not reactivate the audio session.", "SESSION_REACTIVATE_FAILED", error)
+                return
+            }
+            guard recorder.record() else {
+                call.reject("The system declined to resume recording.", "RECORD_FAILED")
+                return
+            }
         }
 
         if let ps = pauseStartDate {
