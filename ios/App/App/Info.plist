@@ -37,6 +37,8 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Eigen Pocket uses your location to tag where meetings take place. Only used when you create a session.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Eigen Pocket uses your location to tag where meetings take place. Only used when you create a session.</string>
 	<key>NSMicrophoneUsageDescription</key>
