@@ -17,6 +17,22 @@ export function fmtMs(ms: number): string {
 }
 
 /**
+ * Whether `currentMs` falls within [startMs, endMs) — used to highlight the
+ * transcript segment the audio player is currently on. A null/undefined
+ * startMs means the segment has no timing at all (not active); a null/
+ * undefined endMs means "still going" (e.g. the last/only segment), not
+ * "never active".
+ */
+export function isTimeInRange(
+  currentMs: number,
+  startMs: number | null | undefined,
+  endMs: number | null | undefined,
+): boolean {
+  if (startMs == null) return false;
+  return currentMs >= startMs && (endMs == null || currentMs < endMs);
+}
+
+/**
  * A raw internal id has no value to a viewer — drop lines like
  * "Session ID: 167c5ee5-4fe0-4144-85f3-193196fd48ff" from an insight
  * artifact's preamble entirely rather than showing them.

@@ -8,7 +8,7 @@
 //
 // All calls use the shared request() wrapper from auth/api.ts (JWT, base URL config).
 
-import { request } from '$lib/auth/api';
+import { request, requestBlob } from '$lib/auth/api';
 import { isNative } from '$lib/platform';
 import { getSupportedMimeType } from './audioRecorder';
 
@@ -410,6 +410,23 @@ export interface SessionAction {
   [key: string]: unknown;
 }
 
+/**
+ * One temporal event — matches backend's _serialize_temporal_event() in
+ * knowledge_session_stream_service.py. An action item's source_event_id
+ * (if set) refers to one of these, which is how an action item resolves to
+ * a playable timestamp (occurred_at_ms): actions themselves carry no
+ * timestamp of their own.
+ */
+export interface TemporalEvent {
+  event_id: string;
+  event_type?: string | null;
+  occurred_at_ms?: number | null;
+  content?: string | null;
+  status?: string | null;
+  updated_at?: string | null;
+  [key: string]: unknown;
+}
+
 export interface LiveStateResponse {
   status:               string;
   /** Studio Live Room URL — open this directly for "Open Live Room" on a finalized session. */
@@ -435,6 +452,7 @@ export interface LiveStateResponse {
   summary_text?:        string | null;
   transcript_segments?: TranscriptSegment[] | null;
   actions?:             SessionAction[] | null;
+  temporal_events?:     TemporalEvent[] | null;
   participants?:        LiveStateParticipant[] | null;
   started_at?:          string | null;
   ended_at?:            string | null;
@@ -448,6 +466,23 @@ export interface LiveStateResponse {
  */
 export async function getLiveState(sessionId: string): Promise<LiveStateResponse> {
   return request<LiveStateResponse>(`/knowledge-sessions/${sessionId}/live-state`);
+}
+
+/**
+ * Fetches the session's full recording for playback, as a Blob — GET
+ * /{session_id}/audio on the backend (confirmed by reading
+ * get_knowledge_session_audio_endpoint in knowledge_sessions.py: serves the
+ * merged recording from storage, 404 if the session has none). Caller is
+ * responsible for URL.createObjectURL()'ing the result and revoking it when
+ * done — this function does not cache.
+ *
+ * Backend-only for now: fetches the full file from EigenVertex every time,
+ * even when this device holds the original local audio for the session. A
+ * future pass should prefer the local copy when present, for offline
+ * playback and to avoid re-downloading audio the device already has.
+ */
+export async function getKnowledgeSessionAudioBlob(sessionId: string): Promise<Blob> {
+  return requestBlob(`/knowledge-sessions/${sessionId}/audio`);
 }
 
 // ── Post-session artifacts ────────────────────────────────────────────────

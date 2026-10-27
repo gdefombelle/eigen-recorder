@@ -189,6 +189,78 @@ export async function request<T>(
   return res.json() as Promise<T>;
 }
 
+const BLOB_REQUEST_TIMEOUT_MS = 60_000; // audio playback — can be a large file, give it longer than the 20s default
+
+/**
+ * Fetches a binary resource (session audio playback) as a Blob, authenticated
+ * the same way request() is — Bearer token, proactive refresh, retry once on
+ * 401. Separate from request<T>() because every transport path there ends in
+ * res.json(); binary needs its own path on both native (CapacitorHttp's
+ * responseType: 'blob' returns base64 in `data` — same decode pattern
+ * nativeAudioRecorder.ts already uses for chunk audio) and web (fetch().blob()
+ * directly). isNative() makes this work identically on iOS, Android and web/PWA.
+ */
+export async function requestBlob(path: string, timeoutMs = BLOB_REQUEST_TIMEOUT_MS): Promise<Blob> {
+  await tryEnsureFresh();
+
+  const fetchOnce = async (token: string | undefined): Promise<{ status: number; blob: () => Promise<Blob> }> => {
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    const url = `${getApiBase()}${path}`;
+
+    if (isNative()) {
+      const { CapacitorHttp } = await import('@capacitor/core');
+      const res = await CapacitorHttp.request({
+        url, method: 'GET', headers,
+        responseType: 'blob',
+        connectTimeout: timeoutMs, readTimeout: timeoutMs,
+      });
+      return {
+        status: res.status,
+        blob: async () => {
+          // CapacitorHttp may or may not prefix a data: URI — strip it if present.
+          const raw    = res.data as string;
+          const base64 = raw.includes(',') ? raw.split(',').pop()! : raw;
+          const bytes  = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+          return new Blob([bytes], { type: 'audio/mpeg' });
+        },
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { headers, signal: controller.signal });
+      return { status: res.status, blob: () => res.blob() };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const user = getUser();
+  let res: { status: number; blob: () => Promise<Blob> };
+  try {
+    res = await fetchOnce(user?.token);
+  } catch (e) {
+    throw new ApiError(0, describeTransportFailure(e), true);
+  }
+
+  if (res.status === 401) {
+    const newToken = await tryRefresh();
+    if (newToken) {
+      try {
+        res = await fetchOnce(newToken);
+      } catch (e) {
+        throw new ApiError(0, describeTransportFailure(e), true);
+      }
+    }
+  }
+
+  if (res.status < 200 || res.status >= 300) {
+    throw new ApiError(res.status, `HTTP ${res.status}`, res.status >= 500 || res.status === 429);
+  }
+  return res.blob();
+}
+
 function describeTransportFailure(e: unknown): string {
   // fetch() timeouts surface as AbortError; CapacitorHttp (native) timeouts as an
   // Error whose message says "timed out" — both must NOT read as "unreachable".

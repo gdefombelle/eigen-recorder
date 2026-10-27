@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitIntoParagraphs, isNoiseLine, localizeDateTimeLine } from './transcriptFormat';
+import { splitIntoParagraphs, isNoiseLine, localizeDateTimeLine, isTimeInRange } from './transcriptFormat';
 
 describe('splitIntoParagraphs', () => {
   it('returns an empty array for empty or whitespace-only input', () => {
@@ -77,5 +77,23 @@ describe('localizeDateTimeLine', () => {
     const am = localizeDateTimeLine('Date & Time: 2026-10-27, 12:00 AM (UTC)');
     const pm = localizeDateTimeLine('Date & Time: 2026-10-27, 12:00 PM (UTC)');
     expect(am).not.toBe(pm);
+  });
+});
+
+describe('isTimeInRange', () => {
+  it('is false when startMs is missing, regardless of current position', () => {
+    expect(isTimeInRange(5000, null, 9000)).toBe(false);
+    expect(isTimeInRange(5000, undefined, undefined)).toBe(false);
+  });
+
+  it('is inclusive of startMs and exclusive of endMs', () => {
+    expect(isTimeInRange(2700, 2700, 6400)).toBe(true);  // exactly at start
+    expect(isTimeInRange(6399, 2700, 6400)).toBe(true);  // just before end
+    expect(isTimeInRange(6400, 2700, 6400)).toBe(false); // exactly at end — belongs to the next segment
+    expect(isTimeInRange(2699, 2700, 6400)).toBe(false); // just before start
+  });
+
+  it('treats a missing endMs as "still going" (the last/current segment), not "never active"', () => {
+    expect(isTimeInRange(999_999, 2700, null)).toBe(true);
   });
 });

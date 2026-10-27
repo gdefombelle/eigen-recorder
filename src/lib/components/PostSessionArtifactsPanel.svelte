@@ -7,13 +7,16 @@
     listKnowledgeSessionArtifacts,
     createKnowledgeSessionArtifact,
     sendSessionChatMessage,
+    getKnowledgeSessionAudioBlob,
     type LiveStateResponse,
     type KnowledgeSessionMinutes,
     type KnowledgeSessionArtifact,
+    type TranscriptSegment,
+    type SessionAction,
   } from '$lib/recorder/knowledgeSessionApi';
   import { Dictation, isDictationSupported, dictationMessage } from '$lib/recorder/dictation';
   import type { DictationError } from '$lib/recorder/dictation';
-  import { splitIntoParagraphs, fmtMs, isNoiseLine, localizeDateTimeLine } from '$lib/recorder/transcriptFormat';
+  import { splitIntoParagraphs, fmtMs, isNoiseLine, localizeDateTimeLine, isTimeInRange } from '$lib/recorder/transcriptFormat';
   import { splitAroundTable, formatMsRange } from '$lib/recorder/markdownTable';
   import { renderMarkdownSafe } from '$lib/recorder/markdownRender';
   import MicLevelMeter from './MicLevelMeter.svelte';
@@ -67,6 +70,19 @@
   let micLevel       = $state(0);
   let dictationError = $state('');
   let chatInputEl    = $state<HTMLInputElement | undefined>(undefined);
+
+  // Audio playback — single persistent player shared across tabs. The blob
+  // is fetched once, on the first play tap (GET /audio can be a large file —
+  // no point downloading it for a session nobody plays back), then reused
+  // for every subsequent seek within this panel's lifetime.
+  let audioEl        = $state<HTMLAudioElement | undefined>(undefined);
+  let audioBlobUrl   = $state<string | null>(null);
+  let audioLoading   = $state(false);
+  let audioError     = $state('');
+  let audioPlaying   = $state(false);
+  let audioCurrentMs = $state(0);
+  let audioDurationMs = $state(0);
+  let audioPendingMs = $state<number | null>(null); // seek target once the blob finishes loading
   /** Composer text captured at dictation start, so Cancel can restore it. */
   let textBeforeDictation = '';
   let dictation: Dictation | null = null;
@@ -104,6 +120,80 @@
     { id: 'map', label: 'Mind map' },  { id: 'insights', label: 'Insights' },
     { id: 'chat', label: 'Chat' },
   ];
+
+  // ── Audio playback ───────────────────────────────────────────────────────
+
+  // Action items carry no timestamp of their own — only source_event_id,
+  // which refers to a temporal_event row. Resolve it here once per
+  // liveState load rather than per-render.
+  const eventTimesById = $derived.by(() => {
+    const map = new Map<string, number>();
+    for (const e of liveState?.temporal_events ?? []) {
+      if (e.event_id && e.occurred_at_ms != null) map.set(e.event_id, e.occurred_at_ms);
+    }
+    return map;
+  });
+
+  function actionTimestampMs(item: SessionAction): number | null {
+    if (!item.source_event_id) return null;
+    return eventTimesById.get(item.source_event_id) ?? null;
+  }
+
+  function isSegmentActive(seg: TranscriptSegment): boolean {
+    return audioPlaying && isTimeInRange(audioCurrentMs, seg.start_ms, seg.end_ms);
+  }
+
+  async function playFromMs(ms: number): Promise<void> {
+    audioError = '';
+    if (!audioBlobUrl) {
+      audioPendingMs = ms;
+      audioLoading = true;
+      try {
+        const blob = await getKnowledgeSessionAudioBlob(sessionId);
+        audioBlobUrl = URL.createObjectURL(blob);
+      } catch (e) {
+        audioLoading = false;
+        audioPendingMs = null;
+        audioError = extractError(e);
+        return;
+      }
+      // The seek happens in onAudioLoadedMetadata once the <audio> element
+      // has actually loaded this src — setting currentTime any earlier is
+      // unreliable across browsers/WebView.
+      return;
+    }
+    seekAndPlay(ms);
+  }
+
+  function seekAndPlay(ms: number): void {
+    if (!audioEl) return;
+    audioEl.currentTime = ms / 1000;
+    audioEl.play().catch(() => { audioError = 'Could not play audio.'; });
+  }
+
+  function onAudioLoadedMetadata(): void {
+    audioLoading = false;
+    audioDurationMs = Math.round((audioEl?.duration ?? 0) * 1000);
+    if (audioPendingMs != null) {
+      seekAndPlay(audioPendingMs);
+      audioPendingMs = null;
+    }
+  }
+
+  function onAudioTimeUpdate(): void {
+    audioCurrentMs = Math.round((audioEl?.currentTime ?? 0) * 1000);
+  }
+
+  function toggleAudioPlayback(): void {
+    if (!audioEl || !audioBlobUrl) return;
+    if (audioPlaying) audioEl.pause();
+    else audioEl.play().catch(() => { audioError = 'Could not play audio.'; });
+  }
+
+  function onAudioScrub(e: Event): void {
+    if (!audioEl) return;
+    audioEl.currentTime = Number((e.target as HTMLInputElement).value) / 1000;
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -434,7 +524,10 @@
   onMount(() => {
     sttSupported = isDictationSupported();
     loadAll();
-    return () => dictation?.cancel();
+    return () => {
+      dictation?.cancel();
+      if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
+    };
   });
 </script>
 
@@ -501,12 +594,20 @@
             <h3 class="ws-section-title">Action items</h3>
             <div class="action-list">
               {#each liveState.actions as item}
+                {@const playMs = actionTimestampMs(item)}
                 <div class="action-card">
                   <div class="action-hdr">
                     <span class="action-title">{item.title}</span>
-                    {#if item.status}
-                      <span class="status-pill status-{item.status}">{ACTION_STATUS_LABELS[item.status] ?? item.status}</span>
-                    {/if}
+                    <div class="action-hdr-right">
+                      {#if playMs != null}
+                        <button class="play-btn" onclick={() => playFromMs(playMs)} aria-label="Play audio from this moment" title="Play from here">
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M1 0.5v9l8-4.5z"/></svg>
+                        </button>
+                      {/if}
+                      {#if item.status}
+                        <span class="status-pill status-{item.status}">{ACTION_STATUS_LABELS[item.status] ?? item.status}</span>
+                      {/if}
+                    </div>
                   </div>
                   {#if item.action_text}<p class="action-text">{item.action_text}</p>{/if}
                   {#if item.owner_text || item.due_hint}
@@ -522,9 +623,16 @@
             <h3 class="ws-section-title">Transcript</h3>
             <div class="segments">
               {#each liveState.transcript_segments as seg}
-                <div class="segment">
+                <div class="segment" class:segment-active={isSegmentActive(seg)}>
                   {#if seg.speaker_name || seg.start_ms != null}
-                    <span class="seg-meta">{seg.speaker_name ?? ''}{seg.start_ms != null ? ` · ${fmtMs(seg.start_ms)}` : ''}</span>
+                    <span class="seg-meta">
+                      {#if seg.start_ms != null}
+                        <button class="play-btn" onclick={() => playFromMs(seg.start_ms ?? 0)} aria-label="Play audio from this moment" title="Play from here">
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M1 0.5v9l8-4.5z"/></svg>
+                        </button>
+                      {/if}
+                      {seg.speaker_name ?? ''}{seg.start_ms != null ? ` · ${fmtMs(seg.start_ms)}` : ''}
+                    </span>
                   {/if}
                   {#each splitIntoParagraphs(seg.text) as para}
                     <p class="seg-text">{para}</p>
@@ -764,6 +872,38 @@
     {/if}
 
   </div><!-- /ws-content -->
+
+  {#if audioBlobUrl || audioLoading || audioError}
+    <div class="audio-bar">
+      {#if audioError}
+        <span class="audio-err">{audioError}</span>
+      {:else}
+        <button class="audio-toggle" onclick={toggleAudioPlayback} aria-label={audioPlaying ? 'Pause' : 'Play'} disabled={audioLoading}>
+          {#if audioLoading}
+            <span class="spinner spinner-sm"></span>
+          {:else if audioPlaying}
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor"><rect x="2" y="1" width="3.5" height="11" rx="1"/><rect x="7.5" y="1" width="3.5" height="11" rx="1"/></svg>
+          {:else}
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor"><path d="M2 1v11l9-5.5z"/></svg>
+          {/if}
+        </button>
+        <span class="audio-time">{fmtMs(audioCurrentMs)} / {fmtMs(audioDurationMs)}</span>
+        <input
+          class="audio-scrub" type="range" min="0" max={audioDurationMs || 0} value={audioCurrentMs}
+          oninput={onAudioScrub} aria-label="Seek"
+        />
+      {/if}
+    </div>
+  {/if}
+  <audio
+    bind:this={audioEl}
+    src={audioBlobUrl ?? undefined}
+    onloadedmetadata={onAudioLoadedMetadata}
+    ontimeupdate={onAudioTimeUpdate}
+    onplay={() => (audioPlaying = true)}
+    onpause={() => (audioPlaying = false)}
+    onended={() => (audioPlaying = false)}
+  ></audio>
 </div><!-- /ws-panel -->
 </div><!-- /ws-overlay -->
 
@@ -871,6 +1011,7 @@
   .action-list { display: flex; flex-direction: column; gap: 10px; }
   .action-card { border: 1px solid var(--ev-border); border-radius: 10px; padding: 10px 12px; background: var(--ev-surface); display: flex; flex-direction: column; gap: 6px; }
   .action-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .action-hdr-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
   .action-title { font-size: .87rem; font-weight: 700; color: var(--ev-text); line-height: 1.35; }
   .action-text { font-size: .83rem; line-height: 1.5; color: var(--ev-text-muted); margin: 0; }
   .action-meta { font-size: .72rem; color: #74bce7; }
@@ -880,15 +1021,41 @@
   .status-done { background: rgba(76,217,100,.15); color: #4cd964; }
   .status-canceled { background: rgba(255,255,255,.08); color: var(--ev-text-muted); }
 
+  /* ── Play buttons (seek the persistent audio bar to this moment) ───────────── */
+  .play-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; flex-shrink: 0; vertical-align: middle; margin-right: 4px;
+    border: 1px solid rgba(116,188,231,.4); border-radius: 50%; background: rgba(116,188,231,.1);
+    color: #74bce7; cursor: pointer; padding: 0;
+  }
+  .play-btn:active { background: rgba(116,188,231,.3); }
+
   /* ── Transcript segments ──────────────────────────────────────────────────── */
   .segments { display: flex; flex-direction: column; gap: 14px; }
-  .segment { display: flex; flex-direction: column; gap: 2px; }
-  .seg-meta { font-size: .68rem; font-weight: 700; color: #74bce7; letter-spacing: .04em; margin-bottom: 4px; }
+  .segment { display: flex; flex-direction: column; gap: 2px; border-radius: 8px; padding: 4px 6px; margin: -4px -6px; transition: background 150ms; }
+  .segment-active { background: rgba(116,188,231,.1); }
+  .seg-meta { display: flex; align-items: center; font-size: .68rem; font-weight: 700; color: #74bce7; letter-spacing: .04em; margin-bottom: 4px; }
   .seg-text { font-size: .86rem; line-height: 1.55; color: var(--ev-text); margin: 0; }
   /* A long segment is split into several paragraphs for readability (see
      transcriptFormat.ts) — space those apart from each other, distinct from
      the tighter gap between the meta line and the first paragraph. */
   .seg-text + .seg-text { margin-top: 8px; }
+
+  /* ── Persistent audio bar ────────────────────────────────────────────────── */
+  .audio-bar {
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--ev-border); background: var(--ev-card);
+  }
+  .audio-toggle {
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%; border: none;
+    background: #153e4a; color: #74bce7; cursor: pointer;
+  }
+  .audio-toggle:disabled { opacity: .6; cursor: default; }
+  .audio-time { font-size: .72rem; color: var(--ev-text-muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .audio-scrub { flex: 1; accent-color: #74bce7; }
+  .audio-err { font-size: .8rem; color: var(--ev-danger, #e5484d); }
 
   /* ── Report editing ───────────────────────────────────────────────────────── */
   .report-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0; }
