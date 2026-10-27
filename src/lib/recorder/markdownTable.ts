@@ -15,9 +15,21 @@ export interface MarkdownTable {
   rows: string[][];
 }
 
+// LLM-generated table cells sometimes wrap values in markdown emphasis
+// (e.g. "**2700-6400**") — strip it so formatMsRange's digit-range regex
+// (and anything else matching a cell's raw value) sees the plain value,
+// not markdown syntax around it.
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/`(.*?)`/g, '$1')
+    .trim();
+}
+
 function splitRow(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
-  return trimmed.split('|').map((cell) => cell.trim());
+  return trimmed.split('|').map((cell) => stripInlineMarkdown(cell.trim()));
 }
 
 const isPipeLine = (line: string) => /^\s*\|.*\|\s*$/.test(line);

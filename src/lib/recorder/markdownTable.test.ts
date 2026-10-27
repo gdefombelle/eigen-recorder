@@ -32,6 +32,12 @@ describe('extractMarkdownTable', () => {
     expect(extractMarkdownTable(md)).toBeNull();
   });
 
+  it('strips markdown emphasis from cells (LLM-wrapped values)', () => {
+    const md = '| Timecode | Event |\n|--|--|\n| **2700-6400** | `Speaker` announces *several* actions |';
+    const table = extractMarkdownTable(md);
+    expect(table!.rows).toEqual([['2700-6400', 'Speaker announces several actions']]);
+  });
+
   it('stops collecting rows at the first non-pipe line', () => {
     const md = [
       '| H1 | H2 |',

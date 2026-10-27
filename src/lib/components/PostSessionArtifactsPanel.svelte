@@ -13,8 +13,9 @@
   } from '$lib/recorder/knowledgeSessionApi';
   import { Dictation, isDictationSupported, dictationMessage } from '$lib/recorder/dictation';
   import type { DictationError } from '$lib/recorder/dictation';
-  import { splitIntoParagraphs, fmtMs } from '$lib/recorder/transcriptFormat';
+  import { splitIntoParagraphs, fmtMs, isNoiseLine, localizeDateTimeLine } from '$lib/recorder/transcriptFormat';
   import { splitAroundTable, formatMsRange } from '$lib/recorder/markdownTable';
+  import { renderMarkdownSafe } from '$lib/recorder/markdownRender';
   import MicLevelMeter from './MicLevelMeter.svelte';
   import { langStore } from '$lib/i18n/index';
 
@@ -195,12 +196,13 @@
     return md.split('\n')
       .map(line => {
         const t = line.trim();
-        if (!t || /^#{1,4}\s/.test(t) || /^[-=]{3,}$/.test(t)) return '';
-        return t
-          .replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '')
-          .replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1')
-          .replace(/`(.*?)`/g, '$1').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-          .trim();
+        if (!t || /^#{1,4}\s/.test(t) || /^[-=]{3,}$/.test(t) || isNoiseLine(t)) return '';
+        return localizeDateTimeLine(
+          t.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '')
+            .replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1')
+            .replace(/`(.*?)`/g, '$1').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+            .trim(),
+        );
       })
       .filter(Boolean)
       .map(text => ({ meta: null, text }));
@@ -261,11 +263,25 @@
     const v = reportContent[key];
     return Array.isArray(v) ? (v as unknown[]).filter((x): x is Record<string,unknown> => !!x && typeof x === 'object') : [];
   }
-  function valueText(v: unknown): string {
+  /**
+   * A minutes-document row (decision/conclusion/action item/open question/
+   * discussion section) normalizes its detail under a different key per
+   * kind — decision/action/question/text/summary — alongside its own
+   * `title`. Checking `title` first and stopping there (the previous
+   * behavior) silently dropped the actual substance: every row in the
+   * Report tab showed only a short title, never the decision/action/
+   * question text itself.
+   */
+  function rowTitle(v: unknown): string | null {
+    if (!v || typeof v !== 'object') return null;
+    const title = (v as Record<string,unknown>).title;
+    return typeof title === 'string' && title.trim() ? title : null;
+  }
+  function rowBody(v: unknown): string {
     if (typeof v === 'string') return v;
     if (!v || typeof v !== 'object') return '';
     const r = v as Record<string,unknown>;
-    return ([r.title, r.text, r.description, r.action, r.question, r.summary]
+    return ([r.decision, r.action, r.question, r.text, r.description, r.summary]
       .find(p => typeof p === 'string' && (p as string).trim()) as string) ?? '';
   }
 
@@ -553,11 +569,25 @@
             Edit
           </button>
         </div>
-        {#if textField('executive_summary')}<section class="ws-section"><h3 class="ws-section-title">Executive summary</h3><p class="ws-text">{textField('executive_summary')}</p></section>{/if}
-        {#if textField('detailed_report')}<section class="ws-section"><h3 class="ws-section-title">Full report</h3><p class="ws-text">{textField('detailed_report')}</p></section>{/if}
+        {#if textField('executive_summary')}<section class="ws-section"><h3 class="ws-section-title">Executive summary</h3><div class="ws-html">{@html renderMarkdownSafe(textField('executive_summary'))}</div></section>{/if}
+        {#if textField('detailed_report')}<section class="ws-section"><h3 class="ws-section-title">Full report</h3><div class="ws-html">{@html renderMarkdownSafe(textField('detailed_report'))}</div></section>{/if}
         {#each ([['discussion_sections','Discussion'],['conclusions','Conclusions'],['decisions','Decisions'],['action_items','Action items'],['open_questions','Open questions']] as const) as [key,label]}
           {@const rows = listField(key)}
-          {#if rows.length}<section class="ws-section"><h3 class="ws-section-title">{label}</h3><ul class="ws-list">{#each rows as row, i (`${key}-${i}`)}<li>{valueText(row)||JSON.stringify(row)}</li>{/each}</ul></section>{/if}
+          {#if rows.length}
+            <section class="ws-section">
+              <h3 class="ws-section-title">{label}</h3>
+              <div class="action-list">
+                {#each rows as row, i (`${key}-${i}`)}
+                  {@const title = rowTitle(row)}
+                  {@const body = rowBody(row)}
+                  <div class="action-card">
+                    {#if title}<span class="action-title">{title}</span>{/if}
+                    <p class="action-text">{body || (!title ? JSON.stringify(row) : '')}</p>
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {/if}
         {/each}
         {#if !textField('executive_summary') && !textField('detailed_report') && !['discussion_sections','conclusions','decisions','action_items','open_questions'].some(k => listField(k).length)}
           <div class="ws-empty"><p>Report has no sections to display yet.</p></div>
@@ -814,6 +844,23 @@
   .ws-section { border: 1px solid var(--ev-border); border-radius: 14px; padding: 13px; background: var(--ev-card); display: flex; flex-direction: column; gap: 8px; }
   .ws-section-title { font-size: .67rem; letter-spacing: .1em; text-transform: uppercase; color: #74bce7; font-weight: 700; margin: 0; }
   .ws-text { font-size: .87rem; line-height: 1.6; color: var(--ev-text); white-space: pre-wrap; margin: 0; }
+
+  /* ── Rendered markdown (Report) ───────────────────────────────────────────── */
+  .ws-html { font-size: .87rem; line-height: 1.6; color: var(--ev-text); }
+  .ws-html :global(h1), .ws-html :global(h2), .ws-html :global(h3) {
+    font-size: .95rem; font-weight: 700; color: #b6e4ff; margin: 14px 0 6px; line-height: 1.3;
+  }
+  .ws-html :global(h1:first-child), .ws-html :global(h2:first-child), .ws-html :global(h3:first-child) { margin-top: 0; }
+  .ws-html :global(p) { margin: 0 0 10px; }
+  .ws-html :global(p:last-child) { margin-bottom: 0; }
+  .ws-html :global(strong) { color: #d9f0ff; font-weight: 700; }
+  .ws-html :global(ul), .ws-html :global(ol) { margin: 0 0 10px; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+  .ws-html :global(li) { line-height: 1.5; }
+  .ws-html :global(code) { background: rgba(255,255,255,.08); border-radius: 4px; padding: 1px 5px; font-size: .82em; }
+  .ws-html :global(a) { color: #74bce7; }
+  .ws-html :global(table) { width: 100%; border-collapse: collapse; margin: 0 0 10px; font-size: .82rem; }
+  .ws-html :global(th), .ws-html :global(td) { border: 1px solid var(--ev-border); padding: 6px 8px; text-align: left; }
+  .ws-html :global(th) { color: #74bce7; font-weight: 700; }
   .ws-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 7px; font-size: .86rem; line-height: 1.45; color: var(--ev-text); }
 
   /* ── Participants ─────────────────────────────────────────────────────────── */

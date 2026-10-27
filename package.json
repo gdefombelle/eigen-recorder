@@ -25,6 +25,7 @@
     "@sveltejs/adapter-static": "^3.0.4",
     "@sveltejs/kit": "^2.5.0",
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
+    "jsdom": "^27.0.1",
     "sharp": "^0.34.5",
     "svelte": "^5.56.9",
     "svelte-check": "^4.7.6",
@@ -43,6 +44,8 @@
     "@capacitor/ios": "^8.3.4",
     "@capacitor/share": "^8.0.1",
     "capacitor-secure-storage-plugin": "^0.13.0",
-    "idb": "^8.0.0"
+    "dompurify": "^3.2.7",
+    "idb": "^8.0.0",
+    "marked": "^16.4.1"
   }
 }
