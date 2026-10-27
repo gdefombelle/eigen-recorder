@@ -882,9 +882,9 @@
           {#if audioLoading}
             <span class="spinner spinner-sm"></span>
           {:else if audioPlaying}
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor"><rect x="2" y="1" width="3.5" height="11" rx="1"/><rect x="7.5" y="1" width="3.5" height="11" rx="1"/></svg>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="2" width="4" height="12" rx="1"/><rect x="9" y="2" width="4" height="12" rx="1"/></svg>
           {:else}
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor"><path d="M2 1v11l9-5.5z"/></svg>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2l10 6-10 6V2z"/></svg>
           {/if}
         </button>
         <span class="audio-time">{fmtMs(audioCurrentMs)} / {fmtMs(audioDurationMs)}</span>
