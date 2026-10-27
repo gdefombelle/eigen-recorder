@@ -13,7 +13,8 @@
   } from '$lib/recorder/knowledgeSessionApi';
   import { Dictation, isDictationSupported, dictationMessage } from '$lib/recorder/dictation';
   import type { DictationError } from '$lib/recorder/dictation';
-  import { splitIntoParagraphs } from '$lib/recorder/transcriptFormat';
+  import { splitIntoParagraphs, fmtMs } from '$lib/recorder/transcriptFormat';
+  import { splitAroundTable, formatMsRange } from '$lib/recorder/markdownTable';
   import MicLevelMeter from './MicLevelMeter.svelte';
   import { langStore } from '$lib/i18n/index';
 
@@ -105,11 +106,6 @@
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  function fmtMs(ms: number): string {
-    const s = Math.floor(ms / 1000);
-    return `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
-  }
-
   function extractError(e: unknown): string {
     return e instanceof Error ? e.message : 'Something went wrong. Please try again.';
   }
@@ -193,23 +189,9 @@
 
   // ── Insight body parser ───────────────────────────────────────────────────
 
-  function parseInsightItems(md: string): string[] {
-    // Try JSON fenced block first (structured artifact)
-    const jb = md.match(/```(?:json|evtx-[a-z-]+)\s*([\s\S]*?)```/i)?.[1]?.trim();
-    if (jb) {
-      try {
-        const data = JSON.parse(jb) as unknown;
-        if (Array.isArray(data)) {
-          return (data as unknown[]).map(item =>
-            typeof item === 'string' ? item
-              : (item as Record<string,unknown>).text as string
-                ?? (item as Record<string,unknown>).label as string
-                ?? JSON.stringify(item),
-          ).filter(Boolean);
-        }
-      } catch { /* fall through */ }
-    }
-    // Parse as markdown
+  type InsightItem = { meta: string | null; text: string };
+
+  function parseMarkdownLines(md: string): InsightItem[] {
     return md.split('\n')
       .map(line => {
         const t = line.trim();
@@ -220,7 +202,54 @@
           .replace(/`(.*?)`/g, '$1').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
           .trim();
       })
-      .filter(Boolean);
+      .filter(Boolean)
+      .map(text => ({ meta: null, text }));
+  }
+
+  /**
+   * A table row's first cell becomes the card's meta line (reformatted as
+   * mm:ss when it looks like a millisecond range — Timeline rows are
+   * "start-end" ms), and the remaining cells become the body — except a
+   * bracketed internal reference like "[S1-T1]" (an evidence/source tag,
+   * not meant for display), which is dropped rather than shown verbatim.
+   */
+  function tableRowToItem(row: string[]): InsightItem {
+    const [first, ...rest] = row;
+    const text = rest.filter(cell => !/^\[.*\]$/.test(cell)).join(' ');
+    return { meta: formatMsRange(first), text: text || first };
+  }
+
+  function parseInsightItems(md: string): InsightItem[] {
+    // Try JSON fenced block first (structured artifact)
+    const jb = md.match(/```(?:json|evtx-[a-z-]+)\s*([\s\S]*?)```/i)?.[1]?.trim();
+    if (jb) {
+      try {
+        const data = JSON.parse(jb) as unknown;
+        if (Array.isArray(data)) {
+          return (data as unknown[]).map(item => ({
+            meta: null,
+            text: typeof item === 'string' ? item
+              : (item as Record<string,unknown>).text as string
+                ?? (item as Record<string,unknown>).label as string
+                ?? JSON.stringify(item),
+          })).filter(i => i.text);
+        }
+      } catch { /* fall through */ }
+    }
+
+    // A markdown pipe table (Timeline rows) needs structural parsing — the
+    // plain line splitter below would otherwise render each row's raw
+    // "| cell | cell |" syntax verbatim.
+    const { before, table, after } = splitAroundTable(md);
+    if (table) {
+      return [
+        ...parseMarkdownLines(before),
+        ...table.rows.map(tableRowToItem),
+        ...parseMarkdownLines(after),
+      ];
+    }
+
+    return parseMarkdownLines(md);
   }
 
   // ── Report field accessors ────────────────────────────────────────────────
@@ -631,7 +660,12 @@
               {@const items = parseInsightItems(artifact.body_markdown)}
               {#if items.length}
                 <div class="insight-cards">
-                  {#each items as item, i (i)}<div class="insight-card">{item}</div>{/each}
+                  {#each items as item, i (i)}
+                    <div class="insight-card">
+                      {#if item.meta}<span class="insight-meta">{item.meta}</span>{/if}
+                      <p class="insight-text">{item.text}</p>
+                    </div>
+                  {/each}
                 </div>
                 {#if artifact.citations?.length}<p class="ws-source-note">{artifact.citations.length} source ref{artifact.citations.length !== 1 ? 's' : ''}</p>{/if}
               {:else}
@@ -839,10 +873,12 @@
   .insight-cards { display: flex; flex-direction: column; gap: 8px; }
   .insight-card {
     background: rgba(21,62,74,.45); border: 1px solid rgba(116,188,231,.25); border-radius: 10px;
-    padding: 10px 13px; font-size: .86rem; line-height: 1.5; color: var(--ev-text);
+    padding: 10px 13px; display: flex; flex-direction: column; gap: 3px;
     /* left accent bar */
     border-left: 3px solid rgba(87,184,222,.5);
   }
+  .insight-meta { font-size: .68rem; font-weight: 700; color: #74bce7; letter-spacing: .04em; }
+  .insight-text { font-size: .86rem; line-height: 1.5; color: var(--ev-text); margin: 0; }
 
   /* ── Chat ─────────────────────────────────────────────────────────────────── */
   .chat-msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; min-height: 0; }

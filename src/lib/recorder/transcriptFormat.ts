@@ -10,6 +10,12 @@
 
 const SENTENCES_PER_PARAGRAPH = 3;
 
+/** Formats a millisecond offset as mm:ss, e.g. 6400 -> "00:06". */
+export function fmtMs(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
 export function splitIntoParagraphs(text: string): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
