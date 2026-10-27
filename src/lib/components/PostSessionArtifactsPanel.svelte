@@ -13,6 +13,7 @@
   } from '$lib/recorder/knowledgeSessionApi';
   import { Dictation, isDictationSupported, dictationMessage } from '$lib/recorder/dictation';
   import type { DictationError } from '$lib/recorder/dictation';
+  import { splitIntoParagraphs } from '$lib/recorder/transcriptFormat';
   import MicLevelMeter from './MicLevelMeter.svelte';
   import { langStore } from '$lib/i18n/index';
 
@@ -462,7 +463,9 @@
                   {#if seg.speaker_name || seg.start_ms != null}
                     <span class="seg-meta">{seg.speaker_name ?? ''}{seg.start_ms != null ? ` · ${fmtMs(seg.start_ms)}` : ''}</span>
                   {/if}
-                  <p class="seg-text">{seg.text}</p>
+                  {#each splitIntoParagraphs(seg.text) as para}
+                    <p class="seg-text">{para}</p>
+                  {/each}
                 </div>
               {/each}
             </div>
@@ -766,10 +769,14 @@
   .chip { border: 1px solid rgba(116,188,231,.3); border-radius: 20px; padding: 4px 11px; font-size: .75rem; color: #b6e4ff; background: rgba(21,62,74,.5); }
 
   /* ── Transcript segments ──────────────────────────────────────────────────── */
-  .segments { display: flex; flex-direction: column; gap: 10px; }
+  .segments { display: flex; flex-direction: column; gap: 14px; }
   .segment { display: flex; flex-direction: column; gap: 2px; }
-  .seg-meta { font-size: .68rem; font-weight: 700; color: #74bce7; letter-spacing: .04em; }
+  .seg-meta { font-size: .68rem; font-weight: 700; color: #74bce7; letter-spacing: .04em; margin-bottom: 4px; }
   .seg-text { font-size: .86rem; line-height: 1.55; color: var(--ev-text); margin: 0; }
+  /* A long segment is split into several paragraphs for readability (see
+     transcriptFormat.ts) — space those apart from each other, distinct from
+     the tighter gap between the meta line and the first paragraph. */
+  .seg-text + .seg-text { margin-top: 8px; }
 
   /* ── Report editing ───────────────────────────────────────────────────────── */
   .report-hdr { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0; }
