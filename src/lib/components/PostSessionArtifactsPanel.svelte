@@ -94,6 +94,9 @@
     decisions: 'Decisions', questions: 'Open questions',
     agreements: 'Agreements', timeline: 'Timeline',
   };
+  const ACTION_STATUS_LABELS: Record<string, string> = {
+    open: 'Open', in_progress: 'In progress', done: 'Done', canceled: 'Canceled',
+  };
   const TABS: Array<{ id: Tab; label: string }> = [
     { id: 'room', label: 'Live Room' }, { id: 'report', label: 'Report' },
     { id: 'map', label: 'Mind map' },  { id: 'insights', label: 'Insights' },
@@ -451,7 +454,22 @@
         {#if liveState.actions?.length}
           <section class="ws-section">
             <h3 class="ws-section-title">Action items</h3>
-            <ul class="ws-list">{#each liveState.actions as item}<li>{item.text ?? JSON.stringify(item)}</li>{/each}</ul>
+            <div class="action-list">
+              {#each liveState.actions as item}
+                <div class="action-card">
+                  <div class="action-hdr">
+                    <span class="action-title">{item.title}</span>
+                    {#if item.status}
+                      <span class="status-pill status-{item.status}">{ACTION_STATUS_LABELS[item.status] ?? item.status}</span>
+                    {/if}
+                  </div>
+                  {#if item.action_text}<p class="action-text">{item.action_text}</p>{/if}
+                  {#if item.owner_text || item.due_hint}
+                    <span class="action-meta">{[item.owner_text, item.due_hint].filter(Boolean).join(' · ')}</span>
+                  {/if}
+                </div>
+              {/each}
+            </div>
           </section>
         {/if}
         {#if liveState.transcript_segments?.length}
@@ -767,6 +785,19 @@
   /* ── Participants ─────────────────────────────────────────────────────────── */
   .chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { border: 1px solid rgba(116,188,231,.3); border-radius: 20px; padding: 4px 11px; font-size: .75rem; color: #b6e4ff; background: rgba(21,62,74,.5); }
+
+  /* ── Action items ──────────────────────────────────────────────────────────── */
+  .action-list { display: flex; flex-direction: column; gap: 10px; }
+  .action-card { border: 1px solid var(--ev-border); border-radius: 10px; padding: 10px 12px; background: var(--ev-surface); display: flex; flex-direction: column; gap: 6px; }
+  .action-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .action-title { font-size: .87rem; font-weight: 700; color: var(--ev-text); line-height: 1.35; }
+  .action-text { font-size: .83rem; line-height: 1.5; color: var(--ev-text-muted); margin: 0; }
+  .action-meta { font-size: .72rem; color: #74bce7; }
+  .status-pill { flex-shrink: 0; font-size: .64rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+  .status-open { background: rgba(116,188,231,.15); color: #74bce7; }
+  .status-in_progress { background: rgba(249,168,37,.15); color: #f9a825; }
+  .status-done { background: rgba(76,217,100,.15); color: #4cd964; }
+  .status-canceled { background: rgba(255,255,255,.08); color: var(--ev-text-muted); }
 
   /* ── Transcript segments ──────────────────────────────────────────────────── */
   .segments { display: flex; flex-direction: column; gap: 14px; }

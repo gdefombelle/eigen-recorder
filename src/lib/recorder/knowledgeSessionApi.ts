@@ -391,11 +391,22 @@ export interface TranscriptSegment {
   end_ms?: number | null;
 }
 
-/** One action item from the session, as returned by GET /live-state. */
+/**
+ * One action item from the session, as returned by GET /live-state —
+ * matches backend's _serialize_action() in knowledge_session_stream_service.py
+ * exactly (verified by reading it, not guessed): action_id, title,
+ * action_text, owner_text, due_hint, source_event_id, status, updated_at.
+ * status is one of ActionItemStatus: open | in_progress | done | canceled.
+ */
 export interface SessionAction {
-  text?: string | null;
-  owner?: string | null;
-  due_date?: string | null;
+  action_id?: string;
+  title?: string | null;
+  action_text?: string | null;
+  owner_text?: string | null;
+  due_hint?: string | null;
+  status?: 'open' | 'in_progress' | 'done' | 'canceled' | string | null;
+  source_event_id?: string | null;
+  updated_at?: string | null;
   [key: string]: unknown;
 }
 
