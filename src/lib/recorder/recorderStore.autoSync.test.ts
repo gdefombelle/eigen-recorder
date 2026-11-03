@@ -71,6 +71,7 @@ const mockAudioRecorderInstance = () => ({
   start:          vi.fn().mockResolvedValue(undefined),
   pause:          vi.fn(), resume: vi.fn(), stop: vi.fn(),
   getElapsedMs:   vi.fn().mockReturnValue(0),
+  getMicLevel:    vi.fn().mockReturnValue(0),
   state:          'recording',
 });
 vi.mock('./audioRecorder', () => ({
