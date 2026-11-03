@@ -30,6 +30,7 @@
   import { takePhoto, choosePhotos, chooseDocuments, PickerPermissionError, type PickSource } from '$lib/recorder/attachments/attachmentPicker';
   import { formatOffset, summarize, type AttachmentView } from '$lib/recorder/attachments/attachmentView';
   import AttachmentSyncBanner from './AttachmentSyncBanner.svelte';
+  import ScanSpikePanel from './ScanSpikePanel.svelte';
 
   let { localSessionId }: { localSessionId: string } = $props();
 
@@ -477,6 +478,9 @@
           <AttachmentStrip items={attachmentItems} onseeall={() => { attachListOpen = true; }} />
         </div>
       {/if}
+
+      <!-- TEMPORARY: audio spike for "Scan a document" (iOS app, enabled in Settings › Diagnostics) -->
+      {#if isRecording || isPaused}<ScanSpikePanel />{/if}
 
       <!-- Safari warning — only on web, not in Capacitor native app -->
       {#if safariLimited && !mimeSupported && !$authStore}

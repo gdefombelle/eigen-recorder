@@ -16,6 +16,8 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		EA000002CAFECAFE00000001 /* EigenAudioPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000001CAFECAFE00000001 /* EigenAudioPlugin.swift */; };
+		5C0000020000000000000002 /* ScanSpikeProbePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0000010000000000000002 /* ScanSpikeProbePlugin.swift */; };
+		5C0000020000000000000001 /* DocumentScannerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0000010000000000000001 /* DocumentScannerPlugin.swift */; };
 		EA000006CAFECAFE00000001 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000005CAFECAFE00000001 /* MainViewController.swift */; };
 		EA000007CAFECAFE00000001 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA000008CAFECAFE00000001 /* SceneDelegate.swift */; };
 /* End PBXBuildFile section */
@@ -33,6 +35,8 @@
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		C48F21AD30666FF100F5E6A1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		EA000001CAFECAFE00000001 /* EigenAudioPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EigenAudioPlugin.swift; sourceTree = "<group>"; };
+		5C0000010000000000000002 /* ScanSpikeProbePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanSpikeProbePlugin.swift; sourceTree = "<group>"; };
+		5C0000010000000000000001 /* DocumentScannerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentScannerPlugin.swift; sourceTree = "<group>"; };
 		EA000005CAFECAFE00000001 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		EA000008CAFECAFE00000001 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -73,6 +77,8 @@
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				EA000001CAFECAFE00000001 /* EigenAudioPlugin.swift */,
+				5C0000010000000000000002 /* ScanSpikeProbePlugin.swift */,
+				5C0000010000000000000001 /* DocumentScannerPlugin.swift */,
 				EA000005CAFECAFE00000001 /* MainViewController.swift */,
 				EA000008CAFECAFE00000001 /* SceneDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -168,6 +174,8 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				EA000002CAFECAFE00000001 /* EigenAudioPlugin.swift in Sources */,
+				5C0000020000000000000002 /* ScanSpikeProbePlugin.swift in Sources */,
+				5C0000020000000000000001 /* DocumentScannerPlugin.swift in Sources */,
 				EA000006CAFECAFE00000001 /* MainViewController.swift in Sources */,
 				EA000007CAFECAFE00000001 /* SceneDelegate.swift in Sources */,
 			);
