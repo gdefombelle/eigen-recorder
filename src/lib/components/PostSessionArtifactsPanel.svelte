@@ -20,7 +20,11 @@
   import { splitAroundTable, formatMsRange } from '$lib/recorder/markdownTable';
   import { renderMarkdownSafe } from '$lib/recorder/markdownRender';
   import MicLevelMeter from './MicLevelMeter.svelte';
-  import { langStore } from '$lib/i18n/index';
+  import { langStore, t } from '$lib/i18n/index';
+  import TranscriptAttachment from './TranscriptAttachment.svelte';
+  import { getAttachmentApi } from '$lib/recorder/attachments/attachmentApi';
+  import { interleaveAttachments } from '$lib/recorder/attachments/transcriptTimeline';
+  import type { AttachmentRecord } from '$lib/recorder/attachments/types';
 
   type Tab = 'room' | 'report' | 'map' | 'insights' | 'chat';
   type MapNode = { id?: string; label?: string; summary?: string; children?: MapNode[] };
@@ -38,6 +42,11 @@
   let liveState    = $state<LiveStateResponse | null>(null);
   let minutes      = $state<KnowledgeSessionMinutes | null>(null);
   let artifacts    = $state<KnowledgeSessionArtifact[]>([]);
+  // Photos / documents added while recording, placed in the transcript at their minute.
+  // Loaded apart from the main workspace load and best-effort: they must never block or break the panel.
+  let attachments  = $state<AttachmentRecord[]>([]);
+  let transcriptTimeline = $derived(interleaveAttachments(liveState?.transcript_segments ?? [], attachments));
+  let attachChip   = $derived.by(() => { $langStore; return t().attachments.chipCount(attachments.length); });
   let loading      = $state(true);
   let loadTimedOut = $state(false);
   let roomError    = $state('');
@@ -411,8 +420,12 @@
     if (!artifacts.find(a => a.kind === 'mind_map') && minutes) generateArtifact('mind_map');
   }
 
+  async function loadAttachments() {
+    try { attachments = await (await getAttachmentApi()).list(sessionId); } catch { /* optional content */ }
+  }
+
   async function reloadSection(s: 'room' | 'report' | 'artifacts') {
-    if (s === 'room') { roomError = ''; try { liveState = await getLiveState(sessionId); } catch (e) { roomError = extractError(e); } }
+    if (s === 'room') { void loadAttachments(); roomError = ''; try { liveState = await getLiveState(sessionId); } catch (e) { roomError = extractError(e); } }
     else if (s === 'report') { reportError = ''; try { minutes = await getKnowledgeSessionMinutes(sessionId); } catch (e) { reportError = extractError(e); } }
     else { artifactsError = ''; try { artifacts = await listKnowledgeSessionArtifacts(sessionId); } catch (e) { artifactsError = extractError(e); } }
   }
@@ -524,6 +537,7 @@
   onMount(() => {
     sttSupported = isDictationSupported();
     loadAll();
+    void loadAttachments();
     return () => {
       dictation?.cancel();
       if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
@@ -618,31 +632,44 @@
             </div>
           </section>
         {/if}
-        {#if liveState.transcript_segments?.length}
+        {#if liveState.transcript_segments?.length || attachments.length}
           <section class="ws-section">
-            <h3 class="ws-section-title">Transcript</h3>
+            <div class="tr-head">
+              <h3 class="ws-section-title">Transcript</h3>
+              {#if attachments.length}
+                <span class="tr-chip">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg>
+                  {attachChip}
+                </span>
+              {/if}
+            </div>
             <div class="segments">
-              {#each liveState.transcript_segments as seg}
-                <div class="segment" class:segment-active={isSegmentActive(seg)}>
-                  {#if seg.speaker_name || seg.start_ms != null}
-                    <span class="seg-meta">
-                      {#if seg.start_ms != null}
-                        <button class="play-btn" onclick={() => playFromMs(seg.start_ms ?? 0)} aria-label="Play audio from this moment" title="Play from here">
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M1 0.5v9l8-4.5z"/></svg>
-                        </button>
-                      {/if}
-                      {seg.speaker_name ?? ''}{seg.start_ms != null ? ` · ${fmtMs(seg.start_ms)}` : ''}
-                    </span>
-                  {/if}
-                  {#each splitIntoParagraphs(seg.text) as para}
-                    <p class="seg-text">{para}</p>
-                  {/each}
-                </div>
+              {#each transcriptTimeline as item}
+                {#if item.type === 'segment'}
+                  {@const seg = item.segment}
+                  <div class="segment" class:segment-active={isSegmentActive(seg)}>
+                    {#if seg.speaker_name || seg.start_ms != null}
+                      <span class="seg-meta">
+                        {#if seg.start_ms != null}
+                          <button class="play-btn" onclick={() => playFromMs(seg.start_ms ?? 0)} aria-label="Play audio from this moment" title="Play from here">
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M1 0.5v9l8-4.5z"/></svg>
+                          </button>
+                        {/if}
+                        {seg.speaker_name ?? ''}{seg.start_ms != null ? ` · ${fmtMs(seg.start_ms)}` : ''}
+                      </span>
+                    {/if}
+                    {#each splitIntoParagraphs(seg.text) as para}
+                      <p class="seg-text">{para}</p>
+                    {/each}
+                  </div>
+                {:else}
+                  <TranscriptAttachment record={item.attachment} {sessionId} />
+                {/if}
               {/each}
             </div>
           </section>
         {/if}
-        {#if !liveState.summary_text && !liveState.transcript_segments?.length && !liveState.actions?.length && !liveState.participants?.length}
+        {#if !liveState.summary_text && !liveState.transcript_segments?.length && !attachments.length && !liveState.actions?.length && !liveState.participants?.length}
           <div class="ws-empty"><p>Live Room data is being processed.</p><button class="ws-retry" onclick={() => reloadSection('room')}>Refresh</button></div>
         {/if}
       {/if}
@@ -1029,6 +1056,9 @@
     color: #74bce7; cursor: pointer; padding: 0;
   }
   .play-btn:active { background: rgba(116,188,231,.3); }
+
+  .tr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .tr-chip { display: inline-flex; align-items: center; gap: 5px; font-size: .74rem; font-weight: 700; color: var(--ev-blue, #9ad1ff); border: 1px solid rgba(154,209,255,.35); border-radius: 999px; padding: 3px 10px; }
 
   /* ── Transcript segments ──────────────────────────────────────────────────── */
   .segments { display: flex; flex-direction: column; gap: 14px; }

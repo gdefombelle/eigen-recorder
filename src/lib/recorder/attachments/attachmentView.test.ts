@@ -75,7 +75,7 @@ describe('visibleViews / summarize', () => {
       att({ local_attachment_id: '4', state: 'uploaded', server_status: 'ready' }),
       att({ local_attachment_id: '5', state: 'abandoned' }),
     ], () => ctx);
-    expect(summarize(views)).toEqual({ total: 5, waitingNetwork: 2, waitingShare: 0, failed: 1, abandoned: 1 });
+    expect(summarize(views)).toEqual({ total: 5, uploading: 1, waitingNetwork: 1, waitingShare: 0, failed: 1, abandoned: 1 });
   });
 
   it('separates "waiting for the share" from "waiting for network"', () => {

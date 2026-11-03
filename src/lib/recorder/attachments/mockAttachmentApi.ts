@@ -20,6 +20,7 @@ interface Stored {
   record:    AttachmentRecord;
   deleted:   boolean;
   size:      number;
+  file:      Blob;
 }
 
 export interface MockAttachmentApiOptions {
@@ -107,7 +108,7 @@ export class MockAttachmentApi implements AttachmentApiContract {
       title:                input.title,
       kind:                 input.file.type.startsWith('image/') ? 'photo' : 'document',
     };
-    this.rows.push({ sessionId: input.sessionId, record, deleted: false, size: input.file.size });
+    this.rows.push({ sessionId: input.sessionId, record, deleted: false, size: input.file.size, file: input.file });
     return { ...record };
   }
 
@@ -144,6 +145,11 @@ export class MockAttachmentApi implements AttachmentApiContract {
     this.maybeFail();
     this.assertWritable(sessionId);
     this.find(sessionId, attachmentId).deleted = true;
+  }
+
+  async download(sessionId: string, attachmentId: string): Promise<Blob> {
+    this.maybeFail();
+    return this.find(sessionId, attachmentId).file;
   }
 
   async retry(sessionId: string, attachmentId: string): Promise<AttachmentRecord> {

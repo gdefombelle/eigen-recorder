@@ -2,12 +2,20 @@
   import type { AudioChunkMetadata } from '$lib/recorder/types';
   import { formatBytes } from '$lib/recorder/utils';
 
-  let { chunks, totalSizeBytes, state, onMockUpload = null }: {
+  import { t, langStore } from '$lib/i18n/index';
+
+  let { chunks, totalSizeBytes, state, onMockUpload = null, attachmentCount = 0, onattachments = null }: {
     chunks: AudioChunkMetadata[];
     totalSizeBytes: number;
     state: string;
     onMockUpload?: (() => void) | null;
+    /** Number of attachments on this record; the stat is hidden at 0. */
+    attachmentCount?: number;
+    /** Tapping the attachment stat opens the list. */
+    onattachments?: (() => void) | null;
   } = $props();
+
+  let attachmentsLabel = $derived.by(() => { $langStore; return t().attachments.statLabel; });
 
   // Exclude backup_only chunks from sync accounting — they were sent via
   // WebSocket and are kept locally for Share Audio only, not via /audio-chunks.
@@ -32,6 +40,13 @@
       <span class="stat-val">{formatBytes(totalSizeBytes)}</span>
       <span class="stat-key">on device</span>
     </div>
+    {#if attachmentCount > 0}
+      <div class="stat-sep">·</div>
+      <button type="button" class="stat stat-btn" onclick={() => onattachments?.()} disabled={!onattachments}>
+        <span class="stat-val attach-val">{attachmentCount}</span>
+        <span class="stat-key">{attachmentsLabel}</span>
+      </button>
+    {/if}
     {#if !isSynced && realChunks.length > 0}
       <div class="stat-sep">·</div>
       <div class="stat">
@@ -83,6 +98,9 @@
     text-transform: uppercase;
     color: var(--text-muted);
   }
+  .stat-btn { background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; -webkit-tap-highlight-color: transparent; }
+  .stat-btn:disabled { cursor: default; }
+  .attach-val { color: var(--ev-blue); }
   .stat-sep { color: var(--text-subtle); font-size: 1.2rem; }
 
   .sync-badge {

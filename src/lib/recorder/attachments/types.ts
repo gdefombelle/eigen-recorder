@@ -23,6 +23,7 @@ export interface AttachmentRecord {
   // GET list/detail also merge the legacy shape; present there, absent on POST/PATCH/retry.
   title?:               string | null;
   kind?:                AttachmentKind;
+  stored_file?:         { filename?: string | null; content_type?: string | null; size_bytes?: number | null } | null;
 }
 
 export interface UploadAttachmentInput {
@@ -58,6 +59,8 @@ export interface AttachmentApiContract {
   update(sessionId: string, attachmentId: string, patch: UpdateAttachmentPatch): Promise<AttachmentRecord>;
   /** Soft delete. Refused (409) when the session is closed. */
   remove(sessionId: string, attachmentId: string): Promise<void>;
+  /** The stored file. `mimeType` matters on native, where the transport returns raw bytes with no type. */
+  download(sessionId: string, attachmentId: string, mimeType?: string): Promise<Blob>;
   /** Server-side re-ingestion of a failed attachment — does NOT re-upload the file. */
   retry(sessionId: string, attachmentId: string): Promise<AttachmentRecord>;
 }

@@ -88,6 +88,7 @@ export function visibleViews(rows: LocalAttachment[], ctx: (a: LocalAttachment) 
 
 export interface AttachmentSummary {
   total:          number;
+  uploading:      number;
   waitingNetwork: number;
   waitingShare:   number;
   failed:         number;      // upload failures + processing failures
@@ -98,7 +99,8 @@ export function summarize(views: AttachmentView[]): AttachmentSummary {
   const count = (pred: (v: AttachmentView) => boolean) => views.filter(pred).length;
   return {
     total:          views.length,
-    waitingNetwork: count((v) => v.status === 'waiting_network' || v.status === 'uploading'),
+    uploading:      count((v) => v.status === 'uploading'),
+    waitingNetwork: count((v) => v.status === 'waiting_network'),
     waitingShare:   count((v) => v.status === 'waiting_share'),
     failed:         count((v) => v.status === 'failed' || v.status === 'processing_failed'),
     abandoned:      count((v) => v.status === 'abandoned'),

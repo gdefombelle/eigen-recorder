@@ -11,7 +11,7 @@
 //     task (corpus destination); for session-only files it answers 409.
 //   • Duplicate client_attachment_id → 200 with the existing record (idempotent).
 
-import { request, uploadMultipart, ApiError, UploadAbortedError } from '$lib/auth/api';
+import { request, requestBlob, uploadMultipart, ApiError, UploadAbortedError } from '$lib/auth/api';
 import {
   MAX_ATTACHMENT_BYTES,
   type AttachmentApiContract,
@@ -73,6 +73,10 @@ class HttpAttachmentApi implements AttachmentApiContract {
 
   async remove(sessionId: string, attachmentId: string): Promise<void> {
     await request<unknown>(`${base(sessionId)}/${encodeURIComponent(attachmentId)}`, { method: 'DELETE' });
+  }
+
+  download(sessionId: string, attachmentId: string, mimeType?: string): Promise<Blob> {
+    return requestBlob(`${base(sessionId)}/${encodeURIComponent(attachmentId)}/download`, undefined, mimeType);
   }
 
   retry(sessionId: string, attachmentId: string): Promise<AttachmentRecord> {

@@ -28,7 +28,8 @@
   import { attachmentsFor } from '$lib/recorder/attachments/attachmentStore';
   import { addCaptured, type CapturedFile, type CaptureError } from '$lib/recorder/attachments/attachmentCapture';
   import { takePhoto, choosePhotos, chooseDocuments, PickerPermissionError, type PickSource } from '$lib/recorder/attachments/attachmentPicker';
-  import { formatOffset, type AttachmentView } from '$lib/recorder/attachments/attachmentView';
+  import { formatOffset, summarize, type AttachmentView } from '$lib/recorder/attachments/attachmentView';
+  import AttachmentSyncBanner from './AttachmentSyncBanner.svelte';
 
   let { localSessionId }: { localSessionId: string } = $props();
 
@@ -61,6 +62,7 @@
   let attachOffsetMs  = $state(0);
   let attachNotice    = $state('');
   let attachNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+  let attachSummary = $derived(summarize(attachmentItems));
 
   $effect(() => attachmentsFor(localSessionId).subscribe((v) => { attachmentItems = v; }));
 
@@ -483,6 +485,8 @@
             totalSizeBytes={store.totalSizeBytes}
             state={store.state}
             onMockUpload={isStopped ? handleMockUpload : null}
+            attachmentCount={attachmentItems.length}
+            onattachments={() => { attachListOpen = true; }}
           />
         </div>
       {/if}
@@ -491,6 +495,7 @@
       {#if isStopped && store.state !== 'mock_synced' && store.state !== 'synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
+          <AttachmentSyncBanner summary={attachSummary} onretry={() => attachmentQueue.retryAll(localSessionId)} />
           {#if session?.knowledge_session_id}
             <button class="btn btn-ghost btn-full" onclick={() => { artifactsPanelOpen = true; }}>
               <span aria-hidden="true">▤</span> Open session content
@@ -526,6 +531,7 @@
       {:else if store.state === 'mock_synced' || store.state === 'synced'}
         <div class="post-actions animate-fade-in">
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
+          <AttachmentSyncBanner summary={attachSummary} onretry={() => attachmentQueue.retryAll(localSessionId)} />
           <div class="synced-msg"><span class="synced-check">✓</span>{isFr ? 'Envoyé à EigenVertex' : 'Synced to EigenVertex'}{#if session?.remote_session_id} — <code>{session.remote_session_id}</code>{/if}</div>
           {#if session?.knowledge_session_id}
             <button class="btn btn-ghost btn-full" onclick={() => { artifactsPanelOpen = true; }}>

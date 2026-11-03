@@ -278,7 +278,7 @@ const BLOB_REQUEST_TIMEOUT_MS = 60_000; // audio playback — can be a large fil
  * nativeAudioRecorder.ts already uses for chunk audio) and web (fetch().blob()
  * directly). isNative() makes this work identically on iOS, Android and web/PWA.
  */
-export async function requestBlob(path: string, timeoutMs = BLOB_REQUEST_TIMEOUT_MS): Promise<Blob> {
+export async function requestBlob(path: string, timeoutMs = BLOB_REQUEST_TIMEOUT_MS, mimeType = 'audio/mpeg'): Promise<Blob> {
   await tryEnsureFresh();
 
   const fetchOnce = async (token: string | undefined): Promise<{ status: number; blob: () => Promise<Blob> }> => {
@@ -299,7 +299,7 @@ export async function requestBlob(path: string, timeoutMs = BLOB_REQUEST_TIMEOUT
           const raw    = res.data as string;
           const base64 = raw.includes(',') ? raw.split(',').pop()! : raw;
           const bytes  = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-          return new Blob([bytes], { type: 'audio/mpeg' });
+          return new Blob([bytes], { type: mimeType });
         },
       };
     }

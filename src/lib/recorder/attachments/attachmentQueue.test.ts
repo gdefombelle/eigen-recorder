@@ -479,3 +479,28 @@ describe('ApiError wiring', () => {
     expect((await env.storage.getAttachment(b.local_attachment_id))?.state).toBe('uploaded');
   });
 });
+
+
+describe('retryAll — the end-of-record "Retry" button', () => {
+  it('re-sends failed items and skips the backoff wait of queued ones, leaving abandoned ones alone', async () => {
+    env.sessions.set('local-1', 'srv-1');
+    const q = env.newQueue();
+    env.api.failNext(422);
+    const failed = await q.add(photo('failed'));
+    await q.whenIdle();
+    env.api.failNext(503);
+    const backingOff = await q.add(photo('backing off'));
+    await q.whenIdle();
+    const abandoned = await q.add(photo('abandoned'));
+    await q.whenIdle();
+    await env.storage.putAttachment({ ...(await env.storage.getAttachment(abandoned.local_attachment_id))!, state: 'abandoned' });
+    expect((await env.storage.getAttachment(failed.local_attachment_id))?.state).toBe('failed');
+    expect((await env.storage.getAttachment(backingOff.local_attachment_id))?.next_attempt_at).toBeGreaterThan(env.clock.t);
+
+    await q.retryAll('local-1');                      // clock NOT advanced: the 2 s backoff would still be running
+
+    expect((await env.storage.getAttachment(failed.local_attachment_id))?.state).toBe('uploaded');
+    expect((await env.storage.getAttachment(backingOff.local_attachment_id))?.state).toBe('uploaded');
+    expect((await env.storage.getAttachment(abandoned.local_attachment_id))?.state).toBe('abandoned');
+  });
+});

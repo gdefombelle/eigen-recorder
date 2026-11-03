@@ -344,6 +344,19 @@ export function createAttachmentQueue(deps: QueueDeps) {
       }
     },
 
+    /**
+     * The end-of-record "Retry" button: re-send every failed attachment of the record and skip the
+     * backoff wait of queued ones (the user is looking at the screen — a retry NOW is what they asked for).
+     */
+    async retryAll(localSessionId: string): Promise<void> {
+      for (const a of await storage.getAttachmentsBySession(localSessionId)) {
+        if (a.pending_delete || a.state === 'abandoned') continue;
+        if (a.state === 'failed' || (a.state === 'uploaded' && a.server_status === 'failed')) await this.retry(a.local_attachment_id);
+        else if (a.state === 'queued' && a.next_attempt_at !== null) await patch(a.local_attachment_id, { next_attempt_at: null });
+      }
+      await kick();
+    },
+
     /** Pull server-side statuses (processing → ready/failed) for a record's attachments. Best effort. */
     async refreshStatuses(localSessionId: string): Promise<void> {
       const remote = await deps.getRemoteSessionId(localSessionId);
