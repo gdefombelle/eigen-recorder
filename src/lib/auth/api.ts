@@ -110,6 +110,28 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Maps a non-2xx response body to an ApiError. FastAPI returns validation
+ * errors as body.detail = [{type,loc,msg,input}, ...] — serialized so they
+ * produce a readable string instead of [object Object]. 5xx and 429 are the
+ * only HTTP statuses flagged retriable.
+ */
+function buildApiError(status: number, body: Record<string, unknown>): ApiError {
+  const detail =
+    typeof body.detail === 'string'
+      ? body.detail
+      : Array.isArray(body.detail)
+        ? body.detail.map((e: { msg?: string; message?: string }) =>
+            e.msg ?? e.message ?? JSON.stringify(e)
+          ).join('; ')
+        : undefined;
+  return new ApiError(
+    status,
+    (body.message as string | undefined) ?? detail ?? `HTTP ${status}`,
+    status >= 500 || status === 429
+  );
+}
+
 export async function request<T>(
   path: string,
   opts: RequestInit = {},
@@ -169,24 +191,73 @@ export async function request<T>(
       }
     }
     const body = (await res.json().catch(() => ({ message: 'Request failed' }))) as Record<string, unknown>;
-    // FastAPI returns validation errors as body.detail = [{type,loc,msg,input}, ...]
-    // Serialize arrays so they produce a readable string instead of [object Object].
-    const detail =
-      typeof body.detail === 'string'
-        ? body.detail
-        : Array.isArray(body.detail)
-          ? body.detail.map((e: { msg?: string; message?: string }) =>
-              e.msg ?? e.message ?? JSON.stringify(e)
-            ).join('; ')
-          : undefined;
-    throw new ApiError(
-      res.status,
-      (body.message as string | undefined) ?? detail ?? `HTTP ${res.status}`,
-      res.status >= 500 || res.status === 429
-    );
+    throw buildApiError(res.status, body);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+/** Thrown by uploadMultipart() when the caller's AbortSignal fires. Not an ApiError: it is never retriable. */
+export class UploadAbortedError extends Error {
+  constructor() {
+    super('Upload aborted');
+    this.name = 'UploadAbortedError';
+  }
+}
+
+const UPLOAD_TIMEOUT_MS = 120_000; // up to 25 MB on a mobile link — well beyond the 20 s JSON default
+
+export interface UploadOptions {
+  /** Fraction of the request body sent, 0..1. */
+  onProgress?: (fraction: number) => void;
+  signal?:     AbortSignal;
+  timeoutMs?:  number;
+}
+
+/**
+ * Authenticated multipart POST with upload progress and cancellation.
+ *
+ * Separate from request<T>() because fetch() exposes neither upload progress
+ * nor a way to tell "caller cancelled" from "network died"; XHR does both.
+ * Same auth contract as request(): proactive refresh, one silent refresh + retry on 401,
+ * and the same ApiError mapping (status 0 / 5xx / 429 are the retriable ones).
+ */
+export async function uploadMultipart<T>(path: string, form: FormData, opts: UploadOptions = {}): Promise<T> {
+  await tryEnsureFresh();
+  const url = `${getApiBase()}${path}`;
+
+  const sendOnce = (token: string | undefined) =>
+    new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+      if (opts.signal?.aborted) { reject(new UploadAbortedError()); return; }
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.timeout = opts.timeoutMs ?? UPLOAD_TIMEOUT_MS;
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && e.total > 0) opts.onProgress?.(e.loaded / e.total);
+      };
+      const onAbort = () => xhr.abort();
+      opts.signal?.addEventListener('abort', onAbort, { once: true });
+      const done = () => opts.signal?.removeEventListener('abort', onAbort);
+      xhr.onload = () => {
+        done();
+        let body: Record<string, unknown> = {};
+        try { body = JSON.parse(xhr.responseText) as Record<string, unknown>; } catch { body = { message: 'Request failed' }; }
+        resolve({ status: xhr.status, body });
+      };
+      xhr.onerror   = () => { done(); reject(new ApiError(0, 'Network error', true)); };
+      xhr.ontimeout = () => { done(); reject(new ApiError(0, 'Upload timed out', true)); };
+      xhr.onabort   = () => { done(); reject(new UploadAbortedError()); };
+      xhr.send(form);
+    });
+
+  let res = await sendOnce(getUser()?.token);
+  if (res.status === 401) {
+    const newToken = await tryRefresh();
+    if (newToken) res = await sendOnce(newToken);
+  }
+  if (res.status < 200 || res.status >= 300) throw buildApiError(res.status, res.body);
+  return res.body as T;
 }
 
 const BLOB_REQUEST_TIMEOUT_MS = 60_000; // audio playback — can be a large file, give it longer than the 20s default
