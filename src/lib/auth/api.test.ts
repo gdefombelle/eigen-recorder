@@ -213,6 +213,26 @@ class FakeXHR {
   send = vi.fn(() => { FakeXHR.instances.push(this); queueMicrotask(() => FakeXHR.script.shift()?.(this)); });
 }
 
+describe('validation errors keep their field path', () => {
+  it('names each rejected field (two "Field required" are otherwise indistinguishable)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      status: 422,
+      json: async () => ({ detail: [
+        { type: 'missing', loc: ['body', 'client_attachment_id'], msg: 'Field required' },
+        { type: 'missing', loc: ['body', 'start_offset_ms'], msg: 'Field required' },
+      ] }),
+    }));
+    const err = (await request('/x').catch((e) => e)) as ApiError;
+    expect(err.status).toBe(422);
+    expect(err.message).toBe('body.client_attachment_id: Field required; body.start_offset_ms: Field required');
+  });
+
+  it('an entry without loc keeps just its message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ status: 422, json: async () => ({ detail: [{ msg: 'bad value' }] }) }));
+    expect(((await request('/x').catch((e) => e)) as ApiError).message).toBe('bad value');
+  });
+});
+
 describe('uploadMultipart()', () => {
   beforeEach(() => { FakeXHR.instances = []; FakeXHR.script = []; vi.stubGlobal('XMLHttpRequest', FakeXHR); });
 
@@ -259,6 +279,14 @@ describe('uploadMultipart()', () => {
     expect(a.retriable).toBe(true);
     expect(b.retriable).toBe(false);
     expect(b.code).toBe('attachment_too_large');
+  });
+
+  it('a 4xx names what was sent, so a rejected upload explains itself; a 5xx does not', async () => {
+    FakeXHR.script.push(respond(422, { detail: [{ loc: ['body', 'client_attachment_id'], msg: 'Field required' }] }), respond(500, { detail: 'boom' }));
+    const a = (await uploadMultipart('/p', new FormData(), { sent: 'file "a.pdf" type=application/pdf size=10B' }).catch((e) => e)) as ApiError;
+    const b = (await uploadMultipart('/p', new FormData(), { sent: 'file "a.pdf"' }).catch((e) => e)) as ApiError;
+    expect(a.message).toBe('body.client_attachment_id: Field required [sent: file "a.pdf" type=application/pdf size=10B]');
+    expect(b.message).toBe('boom');
   });
 
   it('aborting through the signal throws UploadAbortedError (not an ApiError)', async () => {

@@ -118,7 +118,7 @@ export class ApiError extends Error {
  * produce a readable string instead of [object Object]. 5xx and 429 are the
  * only HTTP statuses flagged retriable.
  */
-function buildApiError(status: number, body: Record<string, unknown>): ApiError {
+function buildApiError(status: number, body: Record<string, unknown>, sent?: string): ApiError {
   // Structured detail: { code, message } — used by endpoints that need a machine-readable reason.
   const obj = body.detail && typeof body.detail === 'object' && !Array.isArray(body.detail)
     ? body.detail as { code?: string; message?: string }
@@ -127,13 +127,17 @@ function buildApiError(status: number, body: Record<string, unknown>): ApiError 
     typeof body.detail === 'string'
       ? body.detail
       : Array.isArray(body.detail)
-        ? body.detail.map((e: { msg?: string; message?: string }) =>
-            e.msg ?? e.message ?? JSON.stringify(e)
-          ).join('; ')
+        ? body.detail.map((e: { msg?: string; message?: string; loc?: unknown[] }) => {
+            const text = e.msg ?? e.message ?? JSON.stringify(e);
+            // FastAPI's loc ("body", "client_attachment_id") says WHICH field was rejected — without it
+            // two "Field required" are indistinguishable.
+            return Array.isArray(e.loc) && e.loc.length ? `${e.loc.join('.')}: ${text}` : text;
+          }).join('; ')
         : obj?.message;
+  const base = (body.message as string | undefined) ?? detail ?? `HTTP ${status}`;
   return new ApiError(
     status,
-    (body.message as string | undefined) ?? detail ?? `HTTP ${status}`,
+    sent && status >= 400 && status < 500 ? `${base} [sent: ${sent}]` : base,
     status >= 500 || status === 429,
     obj?.code,
   );
@@ -230,6 +234,8 @@ export interface UploadOptions {
   onProgress?: (fraction: number) => void;
   signal?:     AbortSignal;
   timeoutMs?:  number;
+  /** Short description of the request body, appended to 4xx errors so a rejected upload explains itself. */
+  sent?:       string;
 }
 
 /**
@@ -274,7 +280,7 @@ export async function uploadMultipart<T>(path: string, form: FormData, opts: Upl
     const newToken = await tryRefresh();
     if (newToken) res = await sendOnce(newToken);
   }
-  if (res.status < 200 || res.status >= 300) throw buildApiError(res.status, res.body);
+  if (res.status < 200 || res.status >= 300) throw buildApiError(res.status, res.body, opts.sent);
   return res.body as T;
 }
 

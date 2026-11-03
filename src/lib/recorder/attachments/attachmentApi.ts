@@ -52,7 +52,8 @@ class HttpAttachmentApi implements AttachmentApiContract {
     if (input.endOffsetMs != null) form.append('end_offset_ms', String(Math.round(input.endOffsetMs)));
     form.append('sha256', input.sha256);
     form.append('title', input.title);
-    return uploadMultipart<AttachmentRecord>(base(input.sessionId), form, opts);
+    const sent = `file "${input.filename}" type=${input.file.type || '(empty)'} size=${input.file.size}B; fields=${[...new Set([...form.keys()])].filter((k) => k !== 'file').join(',')}`;
+    return uploadMultipart<AttachmentRecord>(base(input.sessionId), form, { ...opts, sent });
   }
 
   async list(sessionId: string): Promise<AttachmentRecord[]> {

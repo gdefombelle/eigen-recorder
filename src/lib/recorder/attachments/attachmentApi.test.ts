@@ -103,6 +103,15 @@ describe('httpAttachmentApi.upload — wire format', () => {
   });
 });
 
+describe('httpAttachmentApi.upload — request summary for diagnostics', () => {
+  it('describes the file (name, MIME — "(empty)" when the iOS picker gives none — and size) and the fields sent', async () => {
+    mockUpload.mockResolvedValueOnce({});
+    await httpAttachmentApi.upload(input({ file: new Blob(['%PDF-1.4'], { type: '' }), filename: 'devis piano.pdf', endOffsetMs: 12_000 }));
+    const opts = mockUpload.mock.calls[0][2] as { sent: string };
+    expect(opts.sent).toBe('file "devis piano.pdf" type=(empty) size=8B; fields=client_attachment_id,start_offset_ms,end_offset_ms,sha256,title');
+  });
+});
+
 describe('httpAttachmentApi — other endpoints', () => {
   it('list unwraps { attachments }', async () => {
     mockRequest.mockResolvedValueOnce({ session_id: 's', attachments: [{ attachment_id: 'a' }] });
