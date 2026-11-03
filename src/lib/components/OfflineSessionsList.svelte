@@ -74,7 +74,12 @@
     }
   }
 
-  onMount(load);
+  // Opening Sessions asks the server about records still shown as "Local" — one it already ended becomes
+  // "Envoyée" (no audio re-sent). The list is shown first, then refreshed if anything changed.
+  onMount(async () => {
+    await load();
+    try { if ((await recorderStore.reconcileWithServer()) > 0) await load(); } catch { /* optional */ }
+  });
 
   // ── Action menu ──────────────────────────────────────────────
   function openActionMenu(id: string, e: MouseEvent) {

@@ -12,6 +12,7 @@
 //     → chunks saved to IndexedDB; batch-upload / share later
 
 import { writable, get } from 'svelte/store';
+import { isEndedOnServer, RECONCILE_MAX_SESSIONS, RECONCILE_MIN_INTERVAL_MS, RECONCILE_CONCURRENCY } from './sessionReconcile';
 import type {
   RecorderStoreState,
   RecorderState,
@@ -43,6 +44,7 @@ import {
   buildDevicePayload,
   toParticipantPayload,
   audioRecovery,
+  getKnowledgeSessionServerState,
 } from './knowledgeSessionApi';
 import { getUser, isAuthenticated, authStore } from '$lib/auth/auth';
 import { ApiError } from '$lib/auth/api';
@@ -454,19 +456,35 @@ const _stopsInFlight = new Set<string>();
 let _stopRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let _retryingStops = false;
 
-async function _markStopConfirmed(localSessionId: string): Promise<void> {
+/**
+ * The server ended this record: mark it synced and drop the "stop not confirmed" state. Never touches audio:
+ * chunks stay exactly as they are. `onlyFrom` guards against a concurrent writer having moved the session on.
+ */
+async function _applySynced(
+  localSessionId: string,
+  extra: Record<string, unknown> = {},
+  onlyFrom?: LocalKnowledgeSession['status'],
+  serverEndedAt?: string | null,
+): Promise<boolean> {
   const stored = await offlineStorage.getSession(localSessionId);
-  if (!stored || stored.status === 'synced') return;
+  if (!stored || stored.status === 'synced') return false;
+  if (onlyFrom && stored.status !== onlyFrom) return false;
   const { backend_stop_issue: _i, ...rest } = stored.metadata;
   const synced: LocalKnowledgeSession = {
     ...stored,
     status: 'synced',
-    metadata: { ...rest, backend_stopped: true, backend_stop_pending: false },
+    ended_at: stored.ended_at ?? serverEndedAt ?? null,
+    metadata: { ...rest, backend_stopped: true, backend_stop_pending: false, ...extra },
   };
   await offlineStorage.saveSession(synced);
   if (get(recorderStore).currentSession?.local_session_id === localSessionId) {
     update((st) => ({ ...st, state: 'synced', currentSession: synced }));
   }
+  return true;
+}
+
+async function _markStopConfirmed(localSessionId: string): Promise<void> {
+  await _applySynced(localSessionId);
 }
 
 async function _recordStopIssue(localSessionId: string, issue: BackendStopIssue): Promise<void> {
@@ -502,6 +520,50 @@ async function _attemptBackendStop(session: LocalKnowledgeSession, ksId: string,
   return outcome;
 }
 
+// ── Reconciliation with the server ─────────────────────────────────────────
+//
+// A record can be ended server-side while the app still says "Local" (the stop response never reached us).
+// Ask the server; if it has ended the record, mark it synced WITHOUT sending any audio.
+//
+// Deliberately limited to 'stopped_local' with a backend id. 'recording_offline' is left alone: that is an
+// interrupted recording whose local audio can be LONGER than what the server received, and calling it synced
+// would stop the remainder from ever being sent.
+
+const _lastReconcileAt = new Map<string, number>();
+let _reconciling: Promise<number> | null = null;
+
+async function _reconcileSessions(sessions: LocalKnowledgeSession[], skipId?: string): Promise<Set<string>> {
+  const done = new Set<string>();
+  const now = Date.now();
+  const candidates = sessions
+    .filter((s) => s.status === 'stopped_local' && !!s.knowledge_session_id
+      && s.local_session_id !== skipId
+      && !_stopsInFlight.has(s.local_session_id)
+      && now - (_lastReconcileAt.get(s.local_session_id) ?? -Infinity) >= RECONCILE_MIN_INTERVAL_MS)
+    .slice(0, RECONCILE_MAX_SESSIONS);                                  // getAllSessions() is newest-first
+
+  let next = 0;
+  const worker = async () => {
+    while (next < candidates.length) {
+      const session = candidates[next++];
+      _lastReconcileAt.set(session.local_session_id, Date.now());        // errors count too: no hammering
+      try {
+        const server = await getKnowledgeSessionServerState(session.knowledge_session_id!);
+        if (!isEndedOnServer(server)) continue;
+        const applied = await _applySynced(
+          session.local_session_id,
+          { reconciled: { at: new Date().toISOString(), server_status: server.status, server_ended_at: server.ended_at } },
+          'stopped_local',
+          server.ended_at,
+        );
+        if (applied) done.add(session.local_session_id);
+      } catch { /* unknown to the server, signed out, offline…: leave the record as it is */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(RECONCILE_CONCURRENCY, candidates.length) }, worker));
+  return done;
+}
+
 /** Retry every session whose stop was not confirmed. Safe to call often: skips what is already in flight. */
 async function _retryPendingStops(skipId?: string, known?: LocalKnowledgeSession[]): Promise<void> {
   if (_retryingStops) return;
@@ -525,7 +587,7 @@ function _scheduleStopRetry(attempt = 0): void {
   _stopRetryTimer = setTimeout(async () => {
     _stopRetryTimer = null;
     try {
-      if (isAuthenticated() && get(recorderStore).isOnline) await _retryPendingStops();
+      if (isAuthenticated() && get(recorderStore).isOnline) { await recorderStore.reconcileWithServer(); await _retryPendingStops(); }
       const stillPending = (await offlineStorage.getAllSessions()).some(_isStopPending);
       if (stillPending) _scheduleStopRetry(attempt + 1);
     } catch { /* the next trigger will try again */ }
@@ -1486,6 +1548,27 @@ export const recorderStore = {
    * (e.g. 'paused') — this sweeps sessions sitting idle in storage, never one
    * actively being captured right now.
    */
+  /**
+   * Ask the server about 'stopped_local' records it may already have ended and mark those synced (no audio is
+   * re-sent). Triggered at launch, on foreground / reconnection (via autoSyncPending) and when Sessions opens.
+   * Resolves to how many records changed. Single-flight; a no-op when signed out or offline.
+   */
+  reconcileWithServer(): Promise<number> {
+    if (_reconciling) return _reconciling;
+    if (!isAuthenticated() || !get(recorderStore).isOnline) return Promise.resolve(0);
+    _reconciling = (async () => {
+      try {
+        const { currentSession, state } = get(recorderStore);
+        const liveStates = new Set<RecorderState>(['creating_local_session', 'recording_offline', 'paused', 'stopping', 'mock_uploading']);
+        const activeId = liveStates.has(state) ? currentSession?.local_session_id : undefined;
+        return (await _reconcileSessions(await offlineStorage.getAllSessions(), activeId)).size;
+      } finally {
+        _reconciling = null;
+      }
+    })();
+    return _reconciling;
+  },
+
   async autoSyncPending(): Promise<void> {
     if (_autoSyncing) return;
     if (!isAuthenticated()) return;
@@ -1499,7 +1582,11 @@ export const recorderStore = {
       ]);
       const activeId = liveStates.has(state) ? currentSession?.local_session_id : undefined;
 
-      const sessions = await offlineStorage.getAllSessions();
+      const all = await offlineStorage.getAllSessions();
+
+      // First ask the server: a record it already ended must not be retried or re-sent (no duplicate).
+      const reconciled = await _reconcileSessions(all, activeId);
+      const sessions = all.filter((s) => !reconciled.has(s.local_session_id));
 
       // Stops the server never confirmed (isSessionSyncable() deliberately skips these: they already have a backend session).
       await _retryPendingStops(activeId, sessions);

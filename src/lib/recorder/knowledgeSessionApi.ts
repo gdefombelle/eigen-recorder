@@ -469,6 +469,21 @@ export async function getLiveState(sessionId: string): Promise<LiveStateResponse
 }
 
 /**
+ * What the server says about a session's lifecycle — GET /v1/knowledge-sessions/{id}, keeping only `status`
+ * and `ended_at` (the response is the full session detail; there is no lighter route). Used to reconcile a
+ * record the app still shows as "Local" when the server has already ended it.
+ */
+export interface KnowledgeSessionServerState {
+  status:   string;
+  ended_at: string | null;
+}
+
+export async function getKnowledgeSessionServerState(sessionId: string): Promise<KnowledgeSessionServerState> {
+  const res = await request<{ status?: string; ended_at?: string | null }>(`/knowledge-sessions/${encodeURIComponent(sessionId)}`);
+  return { status: res.status ?? '', ended_at: res.ended_at ?? null };
+}
+
+/**
  * Fetches the session's full recording for playback, as a Blob — GET
  * /{session_id}/audio on the backend (confirmed by reading
  * get_knowledge_session_audio_endpoint in knowledge_sessions.py: serves the
