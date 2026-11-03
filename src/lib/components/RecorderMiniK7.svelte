@@ -21,6 +21,14 @@
   import { openLiveRoom, shareLiveRoom } from '$lib/recorder/liveRoom';
   import { keychainErrorStore } from '$lib/auth/pkceFlow';
   import PostSessionArtifactsPanel from './PostSessionArtifactsPanel.svelte';
+  import AttachmentStrip from './AttachmentStrip.svelte';
+  import AddAttachmentSheet from './AddAttachmentSheet.svelte';
+  import AttachmentListPanel from './AttachmentListPanel.svelte';
+  import { attachmentQueue } from '$lib/recorder/attachments/attachmentQueue';
+  import { attachmentsFor } from '$lib/recorder/attachments/attachmentStore';
+  import { addCaptured, type CapturedFile, type CaptureError } from '$lib/recorder/attachments/attachmentCapture';
+  import { takePhoto, choosePhotos, chooseDocuments, PickerPermissionError, type PickSource } from '$lib/recorder/attachments/attachmentPicker';
+  import { formatOffset, type AttachmentView } from '$lib/recorder/attachments/attachmentView';
 
   let { localSessionId }: { localSessionId: string } = $props();
 
@@ -45,6 +53,60 @@
 
   let loadError = $state('');
 
+  // ── Attachments (photos / documents placed on the record timeline) ─────────
+  let tr = $derived.by(() => { $langStore; return t().attachments; });
+  let attachmentItems = $state<AttachmentView[]>([]);
+  let attachSheetOpen = $state(false);
+  let attachListOpen  = $state(false);
+  let attachOffsetMs  = $state(0);
+  let attachNotice    = $state('');
+  let attachNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  $effect(() => attachmentsFor(localSessionId).subscribe((v) => { attachmentItems = v; }));
+
+  function showAttachNotice(msg: string) {
+    attachNotice = msg;
+    if (attachNoticeTimer) clearTimeout(attachNoticeTimer);
+    attachNoticeTimer = setTimeout(() => { attachNotice = ''; }, 7000);
+  }
+
+  function captureErrorText(e: CaptureError): string {
+    switch (e.reason) {
+      case 'too_large':      return tr.errTooLarge(e.filename);
+      case 'unsupported':    return tr.errUnsupported(e.filename);
+      case 'prepare_failed': return tr.errPrepare(e.filename);
+      case 'storage_failed': return tr.errStorage(e.filename);
+    }
+  }
+
+  // The position is read from the audio clock when the sheet OPENS (the picker can stay up for a minute),
+  // and shared by every file picked from it.
+  async function openAttachSheet() {
+    if (!(isRecording || isPaused)) return;
+    attachOffsetMs = await recorderStore.getCaptureOffsetMs();
+    attachSheetOpen = true;
+  }
+
+  async function handleAttachPick(source: PickSource) {
+    const offsetMs = attachOffsetMs;
+    attachSheetOpen = false;
+    let files: CapturedFile[];
+    try {
+      files = source === 'camera' ? await takePhoto() : source === 'library' ? await choosePhotos() : await chooseDocuments();
+    } catch (e) {
+      showAttachNotice(e instanceof PickerPermissionError ? tr.errCameraDenied : tr.errPicker);
+      return;
+    }
+    if (files.length === 0) return;
+    const res = await addCaptured(attachmentQueue, {
+      localSessionId,
+      offsetMs,
+      files,
+      titleFor: () => tr.defaultPhotoTitle(formatOffset(offsetMs)),
+    });
+    if (res.errors.length) showAttachNotice(res.errors.map(captureErrorText).join(' '));
+  }
+
   // micLevel needs to update ~3×/s (PCM frames) or 10×/s (native poll).
   // $derived($recorderStore) can batch/skip rapid updates in Svelte 5 —
   // bypass it with an explicit subscription so the meter always reflects reality.
@@ -66,9 +128,17 @@
     }
   }
 
+  let unsubscribeAttachmentEvents: (() => void) | null = null;
+
   onMount(async () => {
     recorderStore.init();
     document.addEventListener('visibilitychange', onVisibilityChange);
+    // The server cancelled this record's session: unsent attachments were abandoned — tell the user.
+    unsubscribeAttachmentEvents = attachmentQueue.subscribe((e) => {
+      if (e.type === 'session_cancelled' && e.localSessionId === localSessionId && e.abandoned > 0) {
+        showAttachNotice(tr.sessionCancelled(e.abandoned));
+      }
+    });
     try {
       await recorderStore.loadSession(localSessionId);
     } catch (e) {
@@ -77,6 +147,8 @@
   });
 
   onDestroy(() => {
+    unsubscribeAttachmentEvents?.();
+    if (attachNoticeTimer) clearTimeout(attachNoticeTimer);
     document.removeEventListener('visibilitychange', onVisibilityChange);
     releaseWakeLock();
   });
@@ -157,6 +229,24 @@
       sessionId={session.knowledge_session_id}
       title={session.title}
       onclose={() => { artifactsPanelOpen = false; }}
+    />
+  {/if}
+
+  <!-- ── Attachments: add sheet + full list ── -->
+  {#if attachSheetOpen}
+    <AddAttachmentSheet
+      offsetLabel={formatOffset(attachOffsetMs)}
+      onpick={handleAttachPick}
+      onclose={() => { attachSheetOpen = false; }}
+    />
+  {/if}
+  {#if attachListOpen}
+    <AttachmentListPanel
+      items={attachmentItems}
+      recording={isRecording}
+      paused={isPaused}
+      elapsedMs={store.elapsedMs}
+      onclose={() => { attachListOpen = false; }}
     />
   {/if}
 
@@ -368,6 +458,16 @@
         {/if}
       {/if}
 
+      <!-- ── Attachments strip — photos/documents placed on the timeline while recording ── -->
+      {#if attachNotice}
+        <p class="attach-notice" role="status">{attachNotice}</p>
+      {/if}
+      {#if (isRecording || isPaused) && attachmentItems.length > 0}
+        <div class="attach-strip-wrap animate-fade-in">
+          <AttachmentStrip items={attachmentItems} onseeall={() => { attachListOpen = true; }} />
+        </div>
+      {/if}
+
       <!-- Safari warning — only on web, not in Capacitor native app -->
       {#if safariLimited && !mimeSupported && !$authStore}
         <div class="warn-box">
@@ -450,6 +550,7 @@
           onpause={handlePause}
           onresume={handleResume}
           onstop={handleStop}
+          onattach={openAttachSheet}
         />
       </div>
     {/if}
@@ -459,6 +560,13 @@
 </div>
 
 <style>
+  .attach-strip-wrap { width: 100%; padding: 0 var(--sp-4); }
+  .attach-notice {
+    margin: 0 var(--sp-4); padding: 10px var(--sp-3); border-radius: 10px;
+    background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35);
+    color: var(--ev-orange); font-size: 0.88rem; line-height: 1.4;
+  }
+
   .k7-shell {
     display: flex;
     flex-direction: column;

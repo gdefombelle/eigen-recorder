@@ -1,15 +1,17 @@
 <script lang="ts">
   import type { RecorderState } from '$lib/recorder/types';
   import EndMeetingDialog from './EndMeetingDialog.svelte';
-  import { langStore } from '$lib/i18n/index';
+  import { langStore, t } from '$lib/i18n/index';
 
-  let { state: recState, savingStep = null, onrec, onpause, onresume, onstop }: {
+  let { state: recState, savingStep = null, onrec, onpause, onresume, onstop, onattach }: {
     state: RecorderState;
     savingStep?: 'uploading' | 'finalizing' | null;
     onrec?: () => void;
     onpause?: () => void;
     onresume?: () => void;
     onstop?: () => void;
+    /** Opens the "add to record" sheet. The button is only shown while recording or paused. */
+    onattach?: () => void;
   } = $props();
 
   let showEndDialog = $state(false);
@@ -20,6 +22,7 @@
   let isStopping  = $derived(recState === 'stopping');
   let canControl  = $derived(isRecording || isPaused);
   let isFr        = $derived($langStore === 'fr');
+  let attachLabel = $derived.by(() => { $langStore; return t().attachments.attach; });
 
   // User taps "End meeting" → show confirmation dialog
   function requestStop() {
@@ -96,6 +99,19 @@
             <path d="M4 2l10 6-10 6V2z"/>
           </svg>
           {isFr ? 'REPRENDRE' : 'RESUME'}
+        </button>
+      {/if}
+
+      <!-- Attach a photo / document at the current position — never touches the recording -->
+      {#if onattach}
+        <button
+          class="attach-btn"
+          onclick={() => onattach?.()}
+          aria-label={attachLabel}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 11.5l-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/>
+          </svg>
         </button>
       {/if}
 
@@ -177,7 +193,7 @@
   /* ── Active controls ── */
   .active-controls {
     display: flex;
-    gap: var(--sp-4);
+    gap: var(--sp-3);
     align-items: center;
   }
 
@@ -201,6 +217,20 @@
     min-width: 100px;
     justify-content: center;
   }
+  /* Round attachment button — between PAUSE and END */
+  .attach-btn {
+    width: 56px; height: 56px; flex-shrink: 0;
+    border-radius: 50%;
+    border: 2px solid var(--blue-bright);
+    background: var(--ev-surface);
+    color: var(--blue-bright);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all var(--t);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .attach-btn:active { transform: scale(0.93); background: var(--blue-faint); }
+
   .ctrl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .ctrl-btn:active:not(:disabled) { transform: scale(0.96); }
 

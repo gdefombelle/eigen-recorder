@@ -27,6 +27,7 @@ const mockResumeRecording = vi.fn();
 const mockPauseRecording  = vi.fn();
 const mockStartRecording  = vi.fn().mockResolvedValue(undefined);
 const mockAddListener     = vi.fn().mockResolvedValue({ remove: vi.fn() });
+const mockGetElapsedMs    = vi.fn();
 
 vi.mock('$lib/plugins/eigenAudio', () => ({
   EigenAudio: {
@@ -35,7 +36,7 @@ vi.mock('$lib/plugins/eigenAudio', () => ({
     pauseRecording:    (...args: unknown[]) => mockPauseRecording(...args),
     resumeRecording:   (...args: unknown[]) => mockResumeRecording(...args),
     stopRecording:     vi.fn(),
-    getElapsedMs:      vi.fn(),
+    getElapsedMs:      (...args: unknown[]) => mockGetElapsedMs(...args),
     getMicLevel:       vi.fn(),
     mergeChunks:       vi.fn(),
     addListener:       (...args: unknown[]) => mockAddListener(...args),
@@ -99,5 +100,26 @@ describe('NativeAudioRecorder.pause() — propagates native failure too', () => 
     const recorder = new NativeAudioRecorder();
 
     await expect(recorder.pause()).rejects.toThrow('No active recorder.');
+  });
+});
+
+
+describe('NativeAudioRecorder.refreshElapsedMs() — attachment placement', () => {
+  it('reads the native clock now instead of the 80 ms-polled cache, which can be stale behind the camera', async () => {
+    const recorder = new NativeAudioRecorder();
+    expect(recorder.getElapsedMs()).toBe(0);              // cache never polled (timers frozen)
+    mockGetElapsedMs.mockResolvedValue({ value: 46_300 });
+
+    expect(await recorder.refreshElapsedMs()).toBe(46_300);
+    expect(recorder.getElapsedMs()).toBe(46_300);         // cache refreshed too
+  });
+
+  it('falls back to the last known value when the plugin cannot answer', async () => {
+    const recorder = new NativeAudioRecorder();
+    mockGetElapsedMs.mockResolvedValueOnce({ value: 10_000 });
+    await recorder.refreshElapsedMs();
+    mockGetElapsedMs.mockRejectedValueOnce(new Error('plugin gone'));
+
+    expect(await recorder.refreshElapsedMs()).toBe(10_000);
   });
 });

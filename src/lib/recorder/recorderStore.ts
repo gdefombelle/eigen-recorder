@@ -459,6 +459,28 @@ async function _finalizeStop(
 export const recorderStore = {
   subscribe,
 
+  /**
+   * Position on the audio timeline (ms, pauses excluded — the transcript's
+   * referential) at this very instant. Used to place an attachment.
+   *
+   * Reads the audio clock directly instead of state.elapsedMs: that field is
+   * refreshed by a 100 ms setInterval which can lag or freeze while a native
+   * view (camera, file picker) is on screen, so it would put the attachment
+   * where the recording WAS, not where it is. Web and PCM clocks are
+   * Date-differential (immune to frozen timers); the native clock lives in
+   * Swift and is read on demand.
+   */
+  async getCaptureOffsetMs(): Promise<number> {
+    if (pcmCapture) return Math.max(0, Math.round(pcmCapture.getElapsedMs()));
+    if (recorder) {
+      const ms = 'refreshElapsedMs' in recorder && typeof recorder.refreshElapsedMs === 'function'
+        ? await recorder.refreshElapsedMs()
+        : recorder.getElapsedMs();
+      return Math.max(0, Math.round(ms));
+    }
+    return Math.max(0, Math.round(get(recorderStore).elapsedMs));
+  },
+
   // ── Init ──────────────────────────────────────────────────
 
   init() {

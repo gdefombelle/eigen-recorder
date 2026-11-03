@@ -52,6 +52,8 @@ vi.mock('$lib/auth/auth', () => ({
 const mockResume = vi.fn().mockResolvedValue(undefined);
 vi.mock('./pcmCapture', () => {
   class MockPcmCapture {
+    static last: MockPcmCapture | null = null;
+    constructor() { MockPcmCapture.last = this; }
     onFrame?: unknown; onLevel?: unknown; onError?: unknown;
     amplifiedStream = null;
     start        = vi.fn().mockResolvedValue(undefined);
@@ -140,5 +142,23 @@ describe('pauseRecording()/resumeRecording() — PCM stream mode', () => {
     // Must NOT silently claim an active recording over a dead stream.
     expect(get(store).state).not.toBe('recording_offline');
     expect(get(store).errorMessage).toContain('resume');
+  });
+});
+
+
+describe('getCaptureOffsetMs() — where an attachment is placed on the audio timeline', () => {
+  it('reads the audio clock live, not the interval-refreshed state.elapsedMs (which freezes while the camera is up)', async () => {
+    const store = await loadStore();
+    await readyAndStreaming(store);
+    const { PcmCapture } = await import('./pcmCapture') as unknown as { PcmCapture: { last: { getElapsedMs: ReturnType<typeof vi.fn> } } };
+
+    // The 100 ms setInterval has not refreshed the store (as when the WebView is throttled behind a native view)…
+    const staleStateMs = get(store).elapsedMs;
+    // …but the audio clock has moved on.
+    PcmCapture.last.getElapsedMs.mockReturnValue(46_349.6);
+
+    expect(await store.getCaptureOffsetMs()).toBe(46_350);
+    expect(get(store).elapsedMs).toBe(staleStateMs);
+    expect(staleStateMs).not.toBe(46_350);
   });
 });

@@ -112,6 +112,20 @@ export class NativeAudioRecorder {
   getMicLevel():  number           { return Math.max(this._levelL, this._levelR); }
   getElapsedMs(): number           { return this._elapsed; }
 
+  /**
+   * Reads the native clock NOW (pauses excluded, same clock as the chunk
+   * timestamps), bypassing the 80 ms JS poll. That poll is a setInterval: while
+   * a native view such as the camera is presented the WebView can throttle or
+   * freeze it, so the cached value may be stale by the length of the capture.
+   */
+  async refreshElapsedMs(): Promise<number> {
+    try {
+      const { value } = await EigenAudio.getElapsedMs();
+      this._elapsed = value;
+    } catch { /* plugin unavailable — fall back to the last polled value */ }
+    return this._elapsed;
+  }
+
   get state(): string {
     return this._poll ? 'recording' : 'inactive';
   }
