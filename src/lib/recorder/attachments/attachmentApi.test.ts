@@ -15,7 +15,7 @@ vi.mock('$lib/auth/api', async () => {
 });
 
 import { request, uploadMultipart, ApiError, UploadAbortedError } from '$lib/auth/api';
-import { httpAttachmentApi, classifyAttachmentError, AttachmentTooLargeError } from './attachmentApi';
+import { httpAttachmentApi, classifyAttachmentError, AttachmentTooLargeError, getAttachmentApi, setAttachmentApi } from './attachmentApi';
 import { MockAttachmentApi } from './mockAttachmentApi';
 import { MAX_ATTACHMENT_BYTES, type UploadAttachmentInput } from './types';
 
@@ -209,5 +209,14 @@ describe('MockAttachmentApi — mirrors the server', () => {
 
     const list = await api.list('sess-1');
     expect(list.map((r) => r.start_offset_ms)).toEqual([5_000]);
+  });
+});
+
+
+describe('implementation switch', () => {
+  it('uses the real HTTP client unless VITE_ATTACHMENTS_MOCK=true (the backend is deployed)', async () => {
+    setAttachmentApi(null);
+    expect(import.meta.env.VITE_ATTACHMENTS_MOCK).not.toBe('true');
+    expect(await getAttachmentApi()).toBe(httpAttachmentApi);
   });
 });
