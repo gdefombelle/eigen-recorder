@@ -98,7 +98,7 @@ export function toAttachmentView(att: LocalAttachment, ctx: ViewContext): Attach
     offsetLabel: formatOffset(att.start_offset_ms),
     status,
     percent: status === 'uploading' ? Math.round(Math.min(1, Math.max(0, ctx.progress ?? 0)) * 100) : null,
-    canRetry: status === 'failed' || status === 'processing_failed',
+    canRetry: status === 'failed' || status === 'processing_failed' || status === 'retrying',   // 'retrying': skip the backoff wait now
     errorMessage: att.last_error?.message ?? null,
     diagnostic: formatDiagnostic(att.last_error),
     retryKind: status === 'retrying' ? (att.last_error?.status === 0 ? 'network' : 'server') : null,

@@ -528,3 +528,21 @@ describe('unexpected errors are visible, not silent', () => {
     expect((await env.storage.getAttachment(good.local_attachment_id))?.state).toBe('uploaded');
   });
 });
+
+describe('per-item Retry on an item that is backing off after a server error', () => {
+  it('sends it again immediately (no wait for the 2 s+ backoff) and clears the old error once it succeeds', async () => {
+    env.sessions.set('local-1', 'srv-1');
+    env.api.failNext(500, 'S3 wrapper bug');
+    const q = env.newQueue();
+    const a = await q.add(photo());
+    await q.whenIdle();
+    const before = (await env.storage.getAttachment(a.local_attachment_id))!;
+    expect(before).toMatchObject({ state: 'queued', attempts: 1 });
+    expect(before.last_error).toMatchObject({ status: 500 });
+
+    await q.retry(a.local_attachment_id);          // clock NOT advanced
+    await q.whenIdle();
+
+    expect(await env.storage.getAttachment(a.local_attachment_id)).toMatchObject({ state: 'uploaded', attempts: 0, last_error: null });
+  });
+});

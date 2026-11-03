@@ -48,7 +48,7 @@ describe('toAttachmentView — status mapping (mockup states)', () => {
   });
   it('queued after a failed attempt while ONLINE → retrying, with the real cause (server unreachable)', () => {
     const v = toAttachmentView(att({ attempts: 2, next_attempt_at: 5_000, last_error: { kind: 'transient', status: 0, message: 'blocked' } }), ctx);
-    expect(v).toMatchObject({ status: 'retrying', retryKind: 'network', attempts: 2, nextAttemptAt: 5_000 });
+    expect(v).toMatchObject({ status: 'retrying', retryKind: 'network', attempts: 2, nextAttemptAt: 5_000, canRetry: true });
   });
   it('… or a server error (5xx/429)', () => {
     const v = toAttachmentView(att({ attempts: 1, last_error: { kind: 'transient', status: 503, message: 'down' } }), ctx);
@@ -65,6 +65,11 @@ describe('toAttachmentView — status mapping (mockup states)', () => {
   });
   it('server-side processing failure → retry offered too', () => {
     expect(toAttachmentView(att({ state: 'uploaded', server_status: 'failed' }), ctx)).toMatchObject({ status: 'processing_failed', canRetry: true });
+  });
+  it('only the states where a retry makes sense offer one: not queued, offline, uploading, ready', () => {
+    for (const state of ['uploading', 'uploaded'] as const) expect(toAttachmentView(att({ state, server_status: 'ready' }), ctx).canRetry).toBe(false);
+    expect(toAttachmentView(att(), ctx).canRetry).toBe(false);
+    expect(toAttachmentView(att(), { ...ctx, online: false }).canRetry).toBe(false);
   });
   it('abandoned (cancelled session) → no retry', () => {
     expect(toAttachmentView(att({ state: 'abandoned' }), ctx)).toMatchObject({ status: 'abandoned', canRetry: false });
