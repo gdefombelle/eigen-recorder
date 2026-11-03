@@ -27,3 +27,12 @@ describe('attachments strings — FR/EN parity', () => {
     setLang('en'); expect(t().attachments.listSubtitle(1)).toContain('1 item ·'); expect(t().attachments.listSubtitle(3)).toContain('3 items');
   });
 });
+
+describe('record end-screen warning — FR/EN', () => {
+  it('"finalization not confirmed" exists in both languages with the agreed wording', () => {
+    setLang('fr'); expect(t().recorder.finalizeUnconfirmed).toBe('Finalisation non confirmée, nouvelle tentative automatique');
+    expect(t().recorder.finalizeIssue('timeout', 'No answer', 2)).toBe('Délai dépassé · No answer · tentative 2');
+    setLang('en'); expect(t().recorder.finalizeUnconfirmed).toMatch(/not confirmed/i);
+    expect(t().recorder.finalizeIssue('error', 'HTTP 500', 1)).toBe('Error · HTTP 500');
+  });
+});

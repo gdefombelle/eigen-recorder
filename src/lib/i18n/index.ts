@@ -91,6 +91,8 @@ const translations = {
       seeAll:            'Voir tout →',
       sessions:          'Sessions',
       offlineFirst:      'Enregistreur audio offline-first pour Eigen Pocket',
+      finalizeUnconfirmed: 'Finalisation non confirmée, nouvelle tentative automatique',
+      finalizeIssue:       (kind: string, message: string, attempts: number) => `${kind === 'timeout' ? 'Délai dépassé' : kind === 'offline' ? 'Hors ligne' : 'Erreur'} · ${message}${attempts > 1 ? ` · tentative ${attempts}` : ''}`,
     },
     attachments: {
       attach:              'Ajouter une pièce jointe',
@@ -253,6 +255,8 @@ const translations = {
       seeAll:            'See all →',
       sessions:          'Sessions',
       offlineFirst:      'Offline-first audio recorder for Eigen Pocket',
+      finalizeUnconfirmed: 'Finalization not confirmed — retrying automatically',
+      finalizeIssue:       (kind: string, message: string, attempts: number) => `${kind === 'timeout' ? 'Timed out' : kind === 'offline' ? 'Offline' : 'Error'} · ${message}${attempts > 1 ? ` · attempt ${attempts}` : ''}`,
     },
     attachments: {
       attach:              'Add attachment',

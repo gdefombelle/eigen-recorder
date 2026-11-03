@@ -64,6 +64,14 @@
   let attachNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let attachSummary = $derived(summarize(attachmentItems));
 
+  // The server never confirmed the end of the record (45 s deadline, error or offline): the audio is safe on the
+  // device, the stop is being retried automatically. Independent of attachments.
+  let trRec = $derived.by(() => { $langStore; return t().recorder; });
+  let stopIssue = $derived(session?.metadata?.backend_stop_pending === true
+    ? (session.metadata.backend_stop_issue as { kind: string; message: string; attempts: number } | undefined) ?? null
+    : null);
+  let stopPending = $derived(session?.metadata?.backend_stop_pending === true);
+
   $effect(() => attachmentsFor(localSessionId).subscribe((v) => { attachmentItems = v; }));
 
   function showAttachNotice(msg: string) {
@@ -494,6 +502,15 @@
       <!-- Post-recording actions (in scroll zone) -->
       {#if isStopped && store.state !== 'mock_synced' && store.state !== 'synced'}
         <div class="post-actions animate-fade-in">
+          {#if stopPending}
+            <div class="stop-warning" role="status">
+              <span aria-hidden="true">⚠</span>
+              <div>
+                <strong>{trRec.finalizeUnconfirmed}</strong>
+                {#if stopIssue}<small>{trRec.finalizeIssue(stopIssue.kind, stopIssue.message, stopIssue.attempts)}</small>{/if}
+              </div>
+            </div>
+          {/if}
           <ShareAudioButton sessionId={localSessionId} chunkCount={store.chunks.length} />
           <AttachmentSyncBanner summary={attachSummary} onretry={() => attachmentQueue.retryAll(localSessionId)} />
           {#if session?.knowledge_session_id}
@@ -566,6 +583,10 @@
 </div>
 
 <style>
+  .stop-warning { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 12px var(--sp-3); border-radius: 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.4); color: var(--ev-orange); }
+  .stop-warning div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .stop-warning strong { font-size: 0.95rem; font-weight: 700; line-height: 1.3; }
+  .stop-warning small { font-size: 0.78rem; font-family: var(--font-mono); color: var(--ev-text-dim); word-break: break-word; }
   .attach-strip-wrap { width: 100%; padding: 0 var(--sp-4); }
   .attach-notice {
     margin: 0 var(--sp-4); padding: 10px var(--sp-3); border-radius: 10px;

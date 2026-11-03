@@ -396,6 +396,142 @@ export async function _stopSessionBackend(
   }
 }
 
+// ── Backend stop: deadline, recorded reason, automatic retry ─────────────
+//
+// The record's end screen must never wait on the server indefinitely. Past
+// BACKEND_STOP_DEADLINE_MS the screen is shown with a warning, the session stays
+// 'stopped_local' with `backend_stop_pending`, and the stop is retried — the
+// request already in flight keeps going and is honoured if it lands late.
+//
+// Not covered by autoSyncPending's sweep: a stream-mode session already has a
+// knowledge_session_id, so isSessionSyncable() (which only re-flushes "half
+// flushed" offline sessions) skips it. Hence the dedicated retry below.
+
+export const BACKEND_STOP_DEADLINE_MS = 45_000;
+const STOP_RETRY_DELAYS_MS = [20_000, 60_000, 180_000, 300_000];
+
+/** Why the server stop was not confirmed — kept in the session so it can be read after the fact. */
+export interface BackendStopIssue {
+  kind:     'timeout' | 'error' | 'offline';
+  message:  string;
+  status:   number | null;
+  at:       string;
+  attempts: number;
+}
+
+type StopOutcome =
+  | { type: 'confirmed' }
+  | { type: 'failed'; error: unknown }
+  /** `late()` starts honouring the still-running request's eventual result; call it once the session is saved. */
+  | { type: 'deadline'; late: () => void };
+
+function _raceStop(p: Promise<void>, ms: number, late: () => void): Promise<StopOutcome> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ type: 'deadline', late }), ms);
+    p.then(
+      () => { clearTimeout(timer); resolve({ type: 'confirmed' }); },
+      (error) => { clearTimeout(timer); resolve({ type: 'failed', error }); },
+    );
+  });
+}
+
+function _issueFromError(error: unknown, attempts: number): BackendStopIssue {
+  const apiErr = error instanceof ApiError ? error : null;
+  return {
+    kind:     'error',
+    message:  error instanceof Error ? error.message : String(error),
+    status:   apiErr ? apiErr.status : null,
+    at:       new Date().toISOString(),
+    attempts,
+  };
+}
+
+function _isStopPending(s: LocalKnowledgeSession): boolean {
+  return s.status === 'stopped_local' && !!s.knowledge_session_id && s.metadata?.backend_stop_pending === true;
+}
+
+const _stopsInFlight = new Set<string>();
+let _stopRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let _retryingStops = false;
+
+async function _markStopConfirmed(localSessionId: string): Promise<void> {
+  const stored = await offlineStorage.getSession(localSessionId);
+  if (!stored || stored.status === 'synced') return;
+  const { backend_stop_issue: _i, ...rest } = stored.metadata;
+  const synced: LocalKnowledgeSession = {
+    ...stored,
+    status: 'synced',
+    metadata: { ...rest, backend_stopped: true, backend_stop_pending: false },
+  };
+  await offlineStorage.saveSession(synced);
+  if (get(recorderStore).currentSession?.local_session_id === localSessionId) {
+    update((st) => ({ ...st, state: 'synced', currentSession: synced }));
+  }
+}
+
+async function _recordStopIssue(localSessionId: string, issue: BackendStopIssue): Promise<void> {
+  const stored = await offlineStorage.getSession(localSessionId);
+  if (!stored || stored.status === 'synced') return;
+  const attempts = ((stored.metadata?.backend_stop_issue as BackendStopIssue | undefined)?.attempts ?? 0) + 1;
+  const next: LocalKnowledgeSession = {
+    ...stored,
+    metadata: { ...stored.metadata, backend_stop_pending: true, backend_stop_issue: { ...issue, attempts } },
+  };
+  await offlineStorage.saveSession(next);
+  if (get(recorderStore).currentSession?.local_session_id === localSessionId) {
+    update((st) => ({ ...st, currentSession: next }));
+  }
+}
+
+/**
+ * One stop attempt bounded by the deadline. A request still running at the deadline is NOT cancelled: its
+ * eventual result is applied to the stored session (confirmed → synced, failed → reason recorded).
+ */
+async function _attemptBackendStop(session: LocalKnowledgeSession, ksId: string, syncMode: SyncMode): Promise<StopOutcome> {
+  const id = session.local_session_id;
+  _stopsInFlight.add(id);
+  const stop = _stopSessionBackend(session, ksId, syncMode);
+  const late = () => {
+    stop.then(
+      () => _markStopConfirmed(id),
+      (e) => _recordStopIssue(id, _issueFromError(e, 0)),
+    ).catch(() => { /* storage unavailable — nothing more can be recorded */ }).finally(() => _stopsInFlight.delete(id));
+  };
+  const outcome = await _raceStop(stop, BACKEND_STOP_DEADLINE_MS, late);
+  if (outcome.type !== 'deadline') _stopsInFlight.delete(id);
+  return outcome;
+}
+
+/** Retry every session whose stop was not confirmed. Safe to call often: skips what is already in flight. */
+async function _retryPendingStops(skipId?: string, known?: LocalKnowledgeSession[]): Promise<void> {
+  if (_retryingStops) return;
+  _retryingStops = true;
+  try {
+    for (const session of known ?? await offlineStorage.getAllSessions()) {
+      if (!_isStopPending(session) || session.local_session_id === skipId || _stopsInFlight.has(session.local_session_id)) continue;
+      const outcome = await _attemptBackendStop(session, session.knowledge_session_id!, 'stream');
+      if (outcome.type === 'confirmed') await _markStopConfirmed(session.local_session_id);
+      else if (outcome.type === 'failed') await _recordStopIssue(session.local_session_id, _issueFromError(outcome.error, 0));
+      else { outcome.late(); await _recordStopIssue(session.local_session_id, { kind: 'timeout', message: `No answer from the server after ${BACKEND_STOP_DEADLINE_MS / 1000} s`, status: null, at: new Date().toISOString(), attempts: 0 }); }
+    }
+  } finally {
+    _retryingStops = false;
+  }
+}
+
+/** While the app stays open: retry at 20 s, 1 min, 3 min, 5 min. Later retries come from reconnection, foreground and launch. */
+function _scheduleStopRetry(attempt = 0): void {
+  if (_stopRetryTimer || attempt >= STOP_RETRY_DELAYS_MS.length) return;
+  _stopRetryTimer = setTimeout(async () => {
+    _stopRetryTimer = null;
+    try {
+      if (isAuthenticated() && get(recorderStore).isOnline) await _retryPendingStops();
+      const stillPending = (await offlineStorage.getAllSessions()).some(_isStopPending);
+      if (stillPending) _scheduleStopRetry(attempt + 1);
+    } catch { /* the next trigger will try again */ }
+  }, STOP_RETRY_DELAYS_MS[attempt]);
+}
+
 // ── Stop helper ──────────────────────────────────────────────
 // Shared final step for both recording paths.
 
@@ -413,31 +549,43 @@ async function _finalizeStop(
   }
 
   let backendStopped = false;
+  let stopIssue: BackendStopIssue | null = null;
+  let stopOutcome: StopOutcome | null = null;
 
   if (ksId && isOnline && syncMode !== 'local') {
     update((s) => ({ ...s, savingStep: 'finalizing' }));
-    try {
-      await _stopSessionBackend(session, ksId, syncMode);
+    const outcome = stopOutcome = await _attemptBackendStop(session, ksId, syncMode);
+    if (outcome.type === 'confirmed') {
       backendStopped = true;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      update((s) => ({ ...s, errorMessage: `Backend stop failed: ${msg}` }));
+    } else if (outcome.type === 'failed') {
+      stopIssue = _issueFromError(outcome.error, 1);
+      update((s) => ({ ...s, errorMessage: `Backend stop failed: ${stopIssue!.message}` }));
+    } else {
+      stopIssue = { kind: 'timeout', message: `No answer from the server after ${BACKEND_STOP_DEADLINE_MS / 1000} s`, status: null, at: new Date().toISOString(), attempts: 1 };
     }
+  } else if (ksId && syncMode !== 'local') {
+    stopIssue = { kind: 'offline', message: 'Offline at the end of the recording', status: null, at: new Date().toISOString(), attempts: 0 };
   }
 
   const finalStatus = backendStopped ? 'synced' : 'stopped_local';
 
+  const { backend_stop_issue: _prev, ...baseMetadata } = session.metadata;
   const updatedSession: LocalKnowledgeSession = {
     ...session,
     status:      finalStatus,
     ended_at:    new Date().toISOString(),
     duration_ms: finalMs,
     metadata: {
-      ...session.metadata,
+      ...baseMetadata,
       backend_stopped: backendStopped,
+      // A reason is only kept while the stop is unconfirmed; the end screen warns and a retry is scheduled.
+      backend_stop_pending: stopIssue !== null,
+      ...(stopIssue ? { backend_stop_issue: stopIssue } : {}),
     },
   };
   await offlineStorage.saveSession(updatedSession);
+  if (stopOutcome?.type === 'deadline') stopOutcome.late();   // only now: a late success must not be overwritten by the save above
+  if (stopIssue) _scheduleStopRetry();
 
   // Reflect the real outcome in the UI state: 'synced' when the backend
   // confirmed stop via POST /stop, 'stopped_local' when it failed or was
@@ -1352,6 +1500,10 @@ export const recorderStore = {
       const activeId = liveStates.has(state) ? currentSession?.local_session_id : undefined;
 
       const sessions = await offlineStorage.getAllSessions();
+
+      // Stops the server never confirmed (isSessionSyncable() deliberately skips these: they already have a backend session).
+      await _retryPendingStops(activeId, sessions);
+
       for (const session of sessions) {
         if (session.local_session_id === activeId) continue;
         const { chunkCount } = await offlineStorage.getSessionStats(session.local_session_id);
