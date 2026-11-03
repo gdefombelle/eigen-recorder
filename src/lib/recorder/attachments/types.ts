@@ -65,11 +65,11 @@ export interface AttachmentApiContract {
 // ── Error classification ───────────────────────────────────────────────────
 //
 //   transient        network (status 0), 5xx, 429       → automatic retry with backoff
-//   session_terminal 409 — session closed OR cancelled  → the queue must read the session status
-//                    (the server uses the same message for both)
+//   session_cancelled 409 with detail.code = "session_cancelled" → definitive: abandon the session's queue.
+//                    (A closed session is ACCEPTED by the server — it is not an error.)
 //   aborted          caller cancelled the upload         → not a failure
-//   permanent        400/401/403/404/413/422/…           → state Failed, manual retry only, no loop
-export type AttachmentErrorKind = 'transient' | 'session_terminal' | 'aborted' | 'permanent';
+//   permanent        400/401/403/404/413/422, other 409… → state Failed, manual retry only, no loop
+export type AttachmentErrorKind = 'transient' | 'session_cancelled' | 'aborted' | 'permanent';
 
 export interface ClassifiedAttachmentError {
   kind:    AttachmentErrorKind;

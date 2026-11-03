@@ -103,7 +103,9 @@ export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
-    public readonly retriable = false
+    public readonly retriable = false,
+    /** Machine-readable `detail.code` when the server sends one (e.g. "session_cancelled"). */
+    public readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -117,6 +119,10 @@ export class ApiError extends Error {
  * only HTTP statuses flagged retriable.
  */
 function buildApiError(status: number, body: Record<string, unknown>): ApiError {
+  // Structured detail: { code, message } — used by endpoints that need a machine-readable reason.
+  const obj = body.detail && typeof body.detail === 'object' && !Array.isArray(body.detail)
+    ? body.detail as { code?: string; message?: string }
+    : null;
   const detail =
     typeof body.detail === 'string'
       ? body.detail
@@ -124,11 +130,12 @@ function buildApiError(status: number, body: Record<string, unknown>): ApiError 
         ? body.detail.map((e: { msg?: string; message?: string }) =>
             e.msg ?? e.message ?? JSON.stringify(e)
           ).join('; ')
-        : undefined;
+        : obj?.message;
   return new ApiError(
     status,
     (body.message as string | undefined) ?? detail ?? `HTTP ${status}`,
-    status >= 500 || status === 429
+    status >= 500 || status === 429,
+    obj?.code,
   );
 }
 

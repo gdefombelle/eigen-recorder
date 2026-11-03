@@ -82,6 +82,8 @@ vi.mock('./nativeAudioRecorder', () => ({ NativeAudioRecorder: vi.fn() }));
 vi.mock('./pcmCapture', () => ({ PcmCapture: vi.fn() }));
 vi.mock('./liveStreamClient', () => ({ LiveStreamClient: vi.fn() }));
 vi.mock('./chunkQueue', () => ({ chunkQueue: { init: vi.fn() } }));
+const mockAttachmentKick = vi.fn();
+vi.mock('./attachments/attachmentQueue', () => ({ attachmentQueue: { kick: (...a: unknown[]) => mockAttachmentKick(...a), start: vi.fn() } }));
 vi.mock('./mockRecorderApi', () => ({ mockRecorderApi: {} }));
 vi.mock('./audioEngine', () => ({ getAudioEngine: vi.fn() }));
 vi.mock('$lib/platform', () => ({ isNative: () => false }));
@@ -218,6 +220,19 @@ describe('autoSyncPending — sweeping pending sessions', () => {
     // Exactly one startNow call: the live session, matching currentSession
     // while its state is still 'recording_offline', must have been skipped.
     expect(mockStartNow).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('autoSyncPending — attachments', () => {
+  it('kicks the attachment queue once the backend session exists, so "local only" attachments can leave', async () => {
+    const store = await loadStore(true);
+    mockGetAllSessions.mockResolvedValue([makeSession({ local_session_id: 'pending-1' })]);
+    mockGetSessionStats.mockResolvedValue({ chunkCount: 1, totalBytes: 1000 });
+    mockGetSession.mockImplementation(async (id: string) => makeSession({ local_session_id: id }));
+    mockGetChunksMeta.mockImplementation(async (id: string) => [makeChunk(id)]);
+
+    await store.autoSyncPending();
+    await vi.waitFor(() => expect(mockAttachmentKick).toHaveBeenCalled());
   });
 });
 

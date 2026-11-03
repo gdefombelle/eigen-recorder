@@ -53,8 +53,12 @@ describe('classifyAttachmentError — retry policy', () => {
     expect(classifyAttachmentError(new ApiError(401, 'x', false)).kind).toBe('permanent');
   });
 
-  it('409 → session_terminal (closed or cancelled — the queue must look at the session)', () => {
-    expect(classifyAttachmentError(new ApiError(409, 'terminal', false)).kind).toBe('session_terminal');
+  it('409 + code session_cancelled → session_cancelled (definitive)', () => {
+    expect(classifyAttachmentError(new ApiError(409, 'cancelled', false, 'session_cancelled')).kind).toBe('session_cancelled');
+  });
+
+  it('any other 409 → permanent, never mistaken for a cancelled session', () => {
+    expect(classifyAttachmentError(new ApiError(409, 'Only failed attachments can be retried', false)).kind).toBe('permanent');
   });
 
   it('user cancel → aborted, never a failure', () => {
@@ -157,10 +161,20 @@ describe('MockAttachmentApi — mirrors the server', () => {
     expect(api.uploadAttempts).toBe(2);
   });
 
-  it.each(['closed', 'cancelled'] as const)('%s session → 409 on upload, update and delete (as the real backend does)', async (state) => {
+  it('a CLOSED session still accepts upload, update and delete', async () => {
+    const api = new MockAttachmentApi();
+    api.setSessionState('sess-1', 'closed');
+
+    const rec = await api.upload(input());
+    await api.update('sess-1', rec.attachment_id, { title: 'x' });
+    await api.remove('sess-1', rec.attachment_id);
+    expect(await api.list('sess-1')).toHaveLength(0);
+  });
+
+  it('a CANCELLED session answers 409 session_cancelled on upload, update and delete', async () => {
     const api = new MockAttachmentApi();
     const rec = await api.upload(input());
-    api.setSessionState('sess-1', state);
+    api.setSessionState('sess-1', 'cancelled');
 
     for (const call of [
       () => api.upload(input({ clientAttachmentId: '22222222-2222-4222-8222-222222222222' })),
@@ -168,7 +182,7 @@ describe('MockAttachmentApi — mirrors the server', () => {
       () => api.remove('sess-1', rec.attachment_id),
     ]) {
       const e = await call().catch((x) => x);
-      expect(classifyAttachmentError(e).kind).toBe('session_terminal');
+      expect(classifyAttachmentError(e).kind).toBe('session_cancelled');
     }
   });
 

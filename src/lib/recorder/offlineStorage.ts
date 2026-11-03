@@ -6,6 +6,7 @@ import type {
   AudioChunkStatus,
   OfflineManifest,
 } from './types';
+import type { LocalAttachment, LocalAttachmentData } from './attachments/localTypes';
 
 interface EigenMeetingDB extends DBSchema {
   sessions: {
@@ -22,10 +23,21 @@ interface EigenMeetingDB extends DBSchema {
     key: string;
     value: AudioChunkData;
   };
+  // v2 — record attachments. Same meta/data split as chunks: the (possibly 25 MB)
+  // blob lives apart so listing and status updates never load it.
+  attachments_meta: {
+    key: string;
+    value: LocalAttachment;
+    indexes: { 'by-session': string };
+  };
+  attachments_data: {
+    key: string;
+    value: LocalAttachmentData;
+  };
 }
 
 const DB_NAME    = 'eigen-recorder';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 // The connection is cached as a PROMISE, not a resolved handle, so concurrent
 // first callers share one openDB() instead of each opening their own.
@@ -37,14 +49,24 @@ export function dbReopenCount(): number { return _reopenCount; }
 
 function openConnection(): Promise<IDBPDatabase<EigenMeetingDB>> {
   return openDB<EigenMeetingDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      const sessions = db.createObjectStore('sessions', { keyPath: 'local_session_id' });
-      sessions.createIndex('by-status', 'status');
+    // Additive migrations only: a v1 database already holds recorded audio, so
+    // its stores must never be recreated or touched.
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        const sessions = db.createObjectStore('sessions', { keyPath: 'local_session_id' });
+        sessions.createIndex('by-status', 'status');
 
-      const meta = db.createObjectStore('chunks_meta', { keyPath: 'local_chunk_id' });
-      meta.createIndex('by-session', 'local_session_id');
+        const meta = db.createObjectStore('chunks_meta', { keyPath: 'local_chunk_id' });
+        meta.createIndex('by-session', 'local_session_id');
 
-      db.createObjectStore('chunks_data', { keyPath: 'local_chunk_id' });
+        db.createObjectStore('chunks_data', { keyPath: 'local_chunk_id' });
+      }
+      if (oldVersion < 2) {
+        const att = db.createObjectStore('attachments_meta', { keyPath: 'local_attachment_id' });
+        att.createIndex('by-session', 'local_session_id');
+
+        db.createObjectStore('attachments_data', { keyPath: 'local_attachment_id' });
+      }
     },
     blocked() {
       console.warn('[EigenMeeting] IndexedDB blocked — another tab may have an older version open.');
@@ -129,13 +151,21 @@ export const offlineStorage = {
 
   async deleteSession(sessionId: string): Promise<void> {
     const chunks = await this.getChunksMeta(sessionId);
+    const attachments = await this.getAttachmentsBySession(sessionId);
 
     await withDb(async (db) => {
-      const tx = db.transaction(['sessions', 'chunks_meta', 'chunks_data'], 'readwrite');
+      const tx = db.transaction(
+        ['sessions', 'chunks_meta', 'chunks_data', 'attachments_meta', 'attachments_data'],
+        'readwrite',
+      );
       await tx.objectStore('sessions').delete(sessionId);
       for (const c of chunks) {
         await tx.objectStore('chunks_meta').delete(c.local_chunk_id);
         await tx.objectStore('chunks_data').delete(c.local_chunk_id);
+      }
+      for (const a of attachments) {
+        await tx.objectStore('attachments_meta').delete(a.local_attachment_id);
+        await tx.objectStore('attachments_data').delete(a.local_attachment_id);
       }
       await tx.done;
     });
@@ -195,6 +225,46 @@ export const offlineStorage = {
           uploaded_at: uploadedAt ?? null,
         });
       }
+    });
+  },
+
+  // ── Record attachments ────────────────────────────────────
+
+  /** Writes metadata, and the blob too when given (creation only — status updates omit it). */
+  async putAttachment(meta: LocalAttachment, blob?: Blob): Promise<void> {
+    await withDb(async (db) => {
+      const tx = db.transaction(['attachments_meta', 'attachments_data'], 'readwrite');
+      await tx.objectStore('attachments_meta').put(meta);
+      if (blob) await tx.objectStore('attachments_data').put({ local_attachment_id: meta.local_attachment_id, blob });
+      await tx.done;
+    });
+  },
+
+  async getAttachment(id: string): Promise<LocalAttachment | undefined> {
+    return withDb((db) => db.get('attachments_meta', id));
+  },
+
+  async getAttachmentsBySession(localSessionId: string): Promise<LocalAttachment[]> {
+    const rows = await withDb((db) => db.getAllFromIndex('attachments_meta', 'by-session', localSessionId));
+    return rows.sort((a, b) => a.start_offset_ms - b.start_offset_ms || a.created_at.localeCompare(b.created_at));
+  },
+
+  async getAllAttachments(): Promise<LocalAttachment[]> {
+    const rows = await withDb((db) => db.getAll('attachments_meta'));
+    return rows.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  },
+
+  async getAttachmentBlob(id: string): Promise<Blob | undefined> {
+    const data = await withDb((db) => db.get('attachments_data', id));
+    return data?.blob;
+  },
+
+  async deleteAttachment(id: string): Promise<void> {
+    await withDb(async (db) => {
+      const tx = db.transaction(['attachments_meta', 'attachments_data'], 'readwrite');
+      await tx.objectStore('attachments_meta').delete(id);
+      await tx.objectStore('attachments_data').delete(id);
+      await tx.done;
     });
   },
 

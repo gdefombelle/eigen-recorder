@@ -128,6 +128,18 @@ function setError(msg: string) {
   update((s) => ({ ...s, state: 'error', errorMessage: msg }));
 }
 
+// ── Attachments ──────────────────────────────────────────────
+// Lazy import: the attachment queue must never be able to break audio capture or sync
+// (a failed import or a thrown error here is swallowed, by design).
+async function attachmentsQueueCall(fn: (q: typeof import('./attachments/attachmentQueue').attachmentQueue) => Promise<void> | void): Promise<void> {
+  try {
+    const { attachmentQueue } = await import('./attachments/attachmentQueue');
+    await fn(attachmentQueue);
+  } catch (e) {
+    console.warn('[Attachments] queue call failed:', e instanceof Error ? e.message : e);
+  }
+}
+
 // ── Timer ────────────────────────────────────────────────────
 // Handles both PCM (live) and MediaRecorder (local) modes.
 
@@ -451,6 +463,7 @@ export const recorderStore = {
 
   init() {
     chunkQueue.init(mockRecorderApi);
+    void attachmentsQueueCall((q) => q.start());
 
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => {
@@ -459,6 +472,7 @@ export const recorderStore = {
         // sync sweep. No-op for an anonymous user or an already-running sweep;
         // see autoSyncPending()'s own guards.
         void recorderStore.autoSyncPending();
+        // (the attachment queue also listens to 'online' itself; this covers the foreground path below)
       });
       window.addEventListener('offline', () => update((s) => ({ ...s, isOnline: false })));
 
@@ -467,7 +481,10 @@ export const recorderStore = {
       // same native/web split as startAuthLifecycle() in pkceFlow.ts, kept
       // separate here because this module's concern (pending local sessions)
       // is unrelated to that one's (token freshness).
-      const onForeground = () => { void recorderStore.autoSyncPending(); };
+      const onForeground = () => {
+        void recorderStore.autoSyncPending();
+        void attachmentsQueueCall((q) => q.kick());
+      };
       if (isNative()) {
         import('@capacitor/app').then(({ App }) => {
           App.addListener('appStateChange', ({ isActive }: { isActive: boolean }) => {
@@ -1219,6 +1236,9 @@ export const recorderStore = {
         mode: 'online',
       };
       await offlineStorage.saveSession(withBackendContext);
+      // The backend session now exists: attachments added while "local only" can leave
+      // with their real session id, in parallel with the audio chunks below.
+      void attachmentsQueueCall((q) => q.kick());
 
       const chunks = await offlineStorage.getChunksMeta(targetId);
       const now    = new Date().toISOString();

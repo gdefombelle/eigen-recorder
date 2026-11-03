@@ -52,10 +52,11 @@ export class MockAttachmentApi implements AttachmentApiContract {
     throw new ApiError(f.status, f.message, f.status === 0 || f.status >= 500 || f.status === 429);
   }
 
-  /** Same guard as _ensure_session_access(write=True): terminal sessions answer 409. */
+  /** Closed sessions are accepted; only a cancelled one is refused (409 + detail.code). */
   private assertWritable(sessionId: string): void {
-    const s = this.sessionStates.get(sessionId) ?? 'open';
-    if (s !== 'open') throw new ApiError(409, 'This knowledge session is terminal and cannot be changed.', false);
+    if (this.sessionStates.get(sessionId) === 'cancelled') {
+      throw new ApiError(409, 'This knowledge session is cancelled.', false, 'session_cancelled');
+    }
   }
 
   private find(sessionId: string, id: string): Stored {

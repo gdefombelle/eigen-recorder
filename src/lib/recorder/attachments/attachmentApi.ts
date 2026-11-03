@@ -3,11 +3,10 @@
 // Not yet deployed server-side: see mockAttachmentApi.ts, selected with
 // VITE_ATTACHMENTS_MOCK=true (or setAttachmentApi() in tests).
 //
-// Backend facts worth knowing (eigenvertex f920838):
-//   • POST/PATCH/DELETE/retry all go through _ensure_session_access(write=True)
-//     WITHOUT allow_closed, so a CLOSED session answers 409 just like a
-//     cancelled one. Queued attachments therefore cannot be delivered after the
-//     session is closed until the backend opts these routes into allow_closed.
+// Backend facts worth knowing (eigenvertex f920838 + the allow_closed follow-up):
+//   • POST/PATCH/DELETE/retry accept CLOSED sessions (attachments queued offline
+//     are delivered after the record ends). Only a CANCELLED session is refused:
+//     409 with detail.code = "session_cancelled".
 //   • POST /{id}/retry only works for failed attachments that have an ingestion
 //     task (corpus destination); for session-only files it answers 409.
 //   • Duplicate client_attachment_id → 200 with the existing record (idempotent).
@@ -29,7 +28,7 @@ export function classifyAttachmentError(e: unknown): ClassifiedAttachmentError {
   if (e instanceof UploadAbortedError) return { kind: 'aborted', status: 0, message: e.message };
   if (e instanceof ApiError) {
     if (e.retriable) return { kind: 'transient', status: e.status, message: e.message };       // 0, 5xx, 429
-    if (e.status === 409) return { kind: 'session_terminal', status: 409, message: e.message };
+    if (e.status === 409 && e.code === 'session_cancelled') return { kind: 'session_cancelled', status: 409, message: e.message };
     return { kind: 'permanent', status: e.status, message: e.message };
   }
   // Anything we cannot classify is not retried blindly: a loop on an unknown error is worse than a manual button.
