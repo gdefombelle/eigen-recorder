@@ -69,11 +69,14 @@ function makeEnv(): Env {
   return env;
 }
 
+// SHA-256 of the 4 bytes 'jpeg' used as every test photo's content: the queue verifies the stored copy before sending.
+const JPEG_SHA = '41e5787e9f28562d07b891b1816b492309d646c0f2829743fa4963a9f9cc1d61';
+
 const photo = (title = 'Whiteboard', over: Record<string, unknown> = {}) => ({
   localSessionId: 'local-1',
   file: new Blob(['jpeg'], { type: 'image/jpeg' }),
   filename: 'p.jpg', kind: 'photo' as const,
-  startOffsetMs: 10_000, sha256: 'a'.repeat(64), title,
+  startOffsetMs: 10_000, sha256: JPEG_SHA, title,
   ...over,
 });
 
@@ -544,5 +547,40 @@ describe('per-item Retry on an item that is backing off after a server error', (
     await q.whenIdle();
 
     expect(await env.storage.getAttachment(a.local_attachment_id)).toMatchObject({ state: 'uploaded', attempts: 0, last_error: null });
+  });
+});
+
+
+describe('the stored copy is verified before it is sent', () => {
+  it('an unreadable or different local copy fails locally with an explicit message — nothing is sent', async () => {
+    env.sessions.set('local-1', 'srv-1');
+    env.online.v = false;
+    const q = env.newQueue();
+    const a = await q.add(photo());
+    // the file-backed Blob lost its data: same size claimed, different/empty bytes
+    await env.storage.putAttachment({ ...(await env.storage.getAttachment(a.local_attachment_id))! }, new Blob(['\0\0\0\0']));
+    env.online.v = true;
+
+    await q.kick();
+
+    const row = (await env.storage.getAttachment(a.local_attachment_id))!;
+    expect(row.state).toBe('failed');
+    expect(row.last_error?.message).toMatch(/Local copy unreadable or changed/);
+    expect(env.api.uploadAttempts).toBe(0);
+  });
+
+  it('a blob that throws when read is reported the same way', async () => {
+    env.sessions.set('local-1', 'srv-1');
+    env.online.v = false;
+    const q = env.newQueue();
+    const a = await q.add(photo());
+    const broken = { size: 4, type: 'image/jpeg', arrayBuffer: async () => { throw new Error('NotReadableError'); } } as unknown as Blob;
+    env.storage.getAttachmentBlob = async () => broken;
+    env.online.v = true;
+
+    await q.kick();
+
+    expect(await env.storage.getAttachment(a.local_attachment_id)).toMatchObject({ state: 'failed' });
+    expect(env.api.uploadAttempts).toBe(0);
   });
 });

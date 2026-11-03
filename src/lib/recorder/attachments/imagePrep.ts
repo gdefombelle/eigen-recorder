@@ -18,8 +18,8 @@ export function fitWithin(width: number, height: number, max = PHOTO_MAX_SIDE): 
   return { width: Math.max(1, Math.round(width * k)), height: Math.max(1, Math.round(height * k)) };
 }
 
-export async function sha256Hex(blob: Blob): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+export async function sha256Hex(data: Blob | ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', data instanceof Blob ? await data.arrayBuffer() : data);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
@@ -50,7 +50,12 @@ export async function preparePhoto(source: Blob): Promise<PreparedFile> {
   }
 }
 
-/** Documents go as-is. */
+/**
+ * Documents go as-is (same bytes, same type) — but as an in-memory Blob, not the File the picker handed us.
+ * A picked File can be file-backed by a temporary path the system may reclaim; a Blob built from the bytes
+ * read NOW is self-contained, like the canvas Blobs photos already are (and photos upload fine).
+ */
 export async function prepareDocument(source: Blob): Promise<PreparedFile> {
-  return { blob: source, sha256: await sha256Hex(source) };
+  const bytes = await source.arrayBuffer();
+  return { blob: new Blob([bytes], { type: source.type }), sha256: await sha256Hex(bytes) };
 }

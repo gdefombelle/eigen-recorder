@@ -27,6 +27,7 @@ import {
   type ClassifiedAttachmentError,
 } from './types';
 import type { LocalAttachment } from './localTypes';
+import { sha256Hex } from './imagePrep';
 
 // ── Dependencies (injected so the queue is testable without IndexedDB or network) ──
 
@@ -177,6 +178,16 @@ export function createAttachmentQueue(deps: QueueDeps) {
     const blob = await storage.getAttachmentBlob(id);
     if (!blob) {
       await patch(id, { state: 'failed', last_error: { kind: 'permanent', status: 0, message: 'Local file missing' } });
+      return;
+    }
+
+    // The stored copy must still be exactly what was added. A copy that is unreadable, truncated or different
+    // would reach the server as a broken body; say so here, where the cause is known.
+    try {
+      if (blob.size !== att.size_bytes || (await sha256Hex(blob)) !== att.sha256) throw new Error('size or SHA-256 differs from what was added');
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      await patch(id, { state: 'failed', last_error: { kind: 'permanent', status: 0, message: `Local copy unreadable or changed (${why}) — delete it and add the file again` } });
       return;
     }
 

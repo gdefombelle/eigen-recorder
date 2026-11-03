@@ -103,6 +103,30 @@ describe('httpAttachmentApi.upload — wire format', () => {
   });
 });
 
+describe('httpAttachmentApi.upload — multipart construction, photo vs document', () => {
+  const build = async (over: Partial<UploadAttachmentInput>) => {
+    mockUpload.mockResolvedValueOnce({});
+    await httpAttachmentApi.upload(input(over));
+    return mockUpload.mock.calls.at(-1)![1] as FormData;
+  };
+
+  it('a photo and a document carry the same fields, in the same order, with the file LAST', async () => {
+    const photo = await build({ file: new Blob(['jpg'], { type: 'image/jpeg' }), filename: 'photo-1000.jpg' });
+    const doc = await build({ file: new Blob(['%PDF'], { type: 'application/pdf' }), filename: 'devis piano.pdf' });
+    const expected = ['client_attachment_id', 'start_offset_ms', 'sha256', 'title', 'file'];
+    expect([...photo.keys()]).toEqual(expected);
+    expect([...doc.keys()]).toEqual(expected);
+  });
+
+  it('a document whose MIME type is empty (iOS picker) still gets its name; the type falls back to what the platform sends', async () => {
+    const doc = await build({ file: new Blob(['%PDF'], { type: '' }), filename: 'Devis piano – n°12 é.pdf' });
+    const part = doc.get('file') as File;
+    expect(part.name).toBe('Devis piano – n°12 é.pdf');
+    expect(doc.get('client_attachment_id')).toBe(CLIENT_ID);
+    expect(doc.get('start_offset_ms')).toBe('10400');
+  });
+});
+
 describe('httpAttachmentApi.upload — request summary for diagnostics', () => {
   it('describes the file (name, MIME — "(empty)" when the iOS picker gives none — and size) and the fields sent', async () => {
     mockUpload.mockResolvedValueOnce({});

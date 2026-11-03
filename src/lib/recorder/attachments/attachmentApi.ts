@@ -45,13 +45,16 @@ export class AttachmentTooLargeError extends Error {
 class HttpAttachmentApi implements AttachmentApiContract {
   async upload(input: UploadAttachmentInput, opts: UploadCallOptions = {}): Promise<AttachmentRecord> {
     if (input.file.size > MAX_ATTACHMENT_BYTES) throw new AttachmentTooLargeError(input.file.size);
+    // Text fields FIRST, the file LAST. If the file part cannot be read when the request is serialised (a
+    // file-backed Blob whose source vanished), a body cut there still carries every field — the server then
+    // says "empty"/"sha256 mismatch" instead of the misleading "Field required" for fields we did send.
     const form = new FormData();
-    form.append('file', input.file, input.filename);
     form.append('client_attachment_id', input.clientAttachmentId);
     form.append('start_offset_ms', String(Math.max(0, Math.round(input.startOffsetMs))));
     if (input.endOffsetMs != null) form.append('end_offset_ms', String(Math.round(input.endOffsetMs)));
     form.append('sha256', input.sha256);
     form.append('title', input.title);
+    form.append('file', input.file, input.filename);
     const sent = `file "${input.filename}" type=${input.file.type || '(empty)'} size=${input.file.size}B; fields=${[...new Set([...form.keys()])].filter((k) => k !== 'file').join(',')}`;
     return uploadMultipart<AttachmentRecord>(base(input.sessionId), form, { ...opts, sent });
   }
