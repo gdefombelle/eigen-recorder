@@ -204,6 +204,17 @@ export async function request<T>(
   return res.json() as Promise<T>;
 }
 
+/**
+ * XHR reports a CORS rejection and a dead network identically (onerror, status 0). Say what was attempted so a
+ * report from a device is enough to tell them apart: a page origin the server does not allow shows up here.
+ */
+function describeXhrFailure(url: string): string {
+  let target = url;
+  try { target = new URL(url).origin; } catch { /* keep the raw string */ }
+  const from = typeof location !== 'undefined' ? location.origin : 'unknown';
+  return `Request to ${target} failed before any response (page origin ${from}): no connectivity, or blocked by CORS`;
+}
+
 /** Thrown by uploadMultipart() when the caller's AbortSignal fires. Not an ApiError: it is never retriable. */
 export class UploadAbortedError extends Error {
   constructor() {
@@ -252,7 +263,7 @@ export async function uploadMultipart<T>(path: string, form: FormData, opts: Upl
         try { body = JSON.parse(xhr.responseText) as Record<string, unknown>; } catch { body = { message: 'Request failed' }; }
         resolve({ status: xhr.status, body });
       };
-      xhr.onerror   = () => { done(); reject(new ApiError(0, 'Network error', true)); };
+      xhr.onerror   = () => { done(); reject(new ApiError(0, describeXhrFailure(url), true)); };
       xhr.ontimeout = () => { done(); reject(new ApiError(0, 'Upload timed out', true)); };
       xhr.onabort   = () => { done(); reject(new UploadAbortedError()); };
       xhr.send(form);

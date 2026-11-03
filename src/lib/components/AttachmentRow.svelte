@@ -10,6 +10,15 @@
   let tr = $derived.by(() => { $langStore; return t().attachments; });
   let lang = $derived($langStore);
 
+  // Countdown to the next automatic attempt (only meaningful while 'retrying').
+  let now = $state(Date.now());
+  $effect(() => {
+    if (item.status !== 'retrying') return;
+    const id = setInterval(() => { now = Date.now(); }, 1000);
+    return () => clearInterval(id);
+  });
+  let retryInSec = $derived(item.nextAttemptAt === null ? null : Math.max(0, Math.ceil((item.nextAttemptAt - now) / 1000)));
+
   let editing = $state(false);
   let draft = $state('');
 
@@ -33,8 +42,11 @@
     switch (item.status) {
       case 'ready':             return tr.statusReady;
       case 'uploading':         return tr.statusUploading(item.percent ?? 0);
-      case 'waiting_network':   return tr.statusWaitingNetwork;
-      case 'waiting_share':     return tr.statusWaitingShare;
+      case 'queued':            return tr.statusQueued;
+      case 'offline':           return tr.statusOffline;
+      case 'retrying':          return item.retryKind === 'network'
+                                  ? tr.statusRetryingNetwork(retryInSec)
+                                  : tr.statusRetryingServer(item.lastStatus ?? 0, retryInSec);
       case 'processing':        return tr.statusProcessing;
       case 'processing_failed': return tr.statusProcessingFailed;
       case 'failed':            return tr.statusFailed;
@@ -72,6 +84,10 @@
     </button>
   </div>
 
+  {#if item.diagnostic && item.status !== 'ready' && item.status !== 'processing'}
+    <p class="diag" data-testid="diagnostic"><strong>{tr.diagTitle}</strong>{#if item.attempts > 0} · {tr.diagAttempt(item.attempts)}{/if}<br />{item.diagnostic}</p>
+  {/if}
+
   {#if item.canRetry}
     <button type="button" class="retry" onclick={() => attachmentQueue.retry(item.id)}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.5-5.8M20 4v5h-5"/></svg>
@@ -82,8 +98,8 @@
 
 <style>
   .row { list-style: none; background: var(--ev-card); border: 1px solid var(--ev-border); border-radius: 14px; padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
-  .row.s-waiting_network, .row.s-waiting_share { border-color: rgba(245,158,11,0.35); }
-  .row.s-failed, .row.s-processing_failed { border-color: rgba(229,72,77,0.55); }
+  .row.s-offline, .row.s-retrying, .row.s-waiting_share { border-color: rgba(245,158,11,0.35); }
+  .row.s-retrying, .row.s-failed, .row.s-processing_failed { border-color: rgba(229,72,77,0.55); }
   .row.s-abandoned { opacity: 0.7; }
   .main { display: flex; align-items: center; gap: var(--sp-3); }
   .thumb-wrap { position: relative; flex-shrink: 0; }
@@ -95,10 +111,13 @@
   .status { font-size: 0.9rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
   .st-ready { color: var(--ev-success); }
   .st-uploading, .st-processing { color: var(--ev-blue); }
-  .st-waiting_network, .st-waiting_share { color: var(--ev-orange); }
+  .st-offline, .st-waiting_share, .st-queued { color: var(--ev-orange); }
+  .st-retrying { color: var(--ev-danger); }
   .st-failed, .st-processing_failed, .st-abandoned { color: var(--ev-danger); }
   .bar { flex: 1; max-width: 120px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
   .fill { display: block; height: 100%; background: var(--ev-blue); transition: width 200ms linear; }
+  .diag { margin: 0; padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,0.35); font-family: var(--font-mono); font-size: 0.74rem; line-height: 1.4; color: var(--ev-text-dim); word-break: break-word; user-select: text; -webkit-user-select: text; }
+  .diag strong { color: var(--ev-text); font-family: var(--font-sans); }
   .trash { background: none; border: none; color: var(--ev-text-dim); padding: 10px; margin: -6px -6px -6px 0; cursor: pointer; }
   .retry { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border-radius: 12px; background: var(--ev-black); border: 1px solid rgba(154,209,255,0.4); color: var(--ev-blue); font-family: var(--font-sans); font-size: 1rem; font-weight: 700; cursor: pointer; }
 </style>

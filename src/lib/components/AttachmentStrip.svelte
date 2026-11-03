@@ -17,7 +17,7 @@
     </header>
     <div class="rail">
       {#each items as it (it.id)}
-        <button type="button" class="card" class:fail={it.status === 'failed' || it.status === 'processing_failed'} class:wait={it.status === 'waiting_network' || it.status === 'waiting_share'} onclick={onseeall}>
+        <button type="button" class="card" class:fail={it.status === 'failed' || it.status === 'processing_failed' || it.status === 'retrying'} class:wait={it.status === 'offline' || it.status === 'queued' || it.status === 'waiting_share'} onclick={onseeall}>
           <AttachmentThumb id={it.id} kind={it.kind} size={72} />
           <span class="time">{it.offsetLabel}</span>
           <span class="badge b-{it.status}" aria-hidden="true">
@@ -27,7 +27,7 @@
               <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10V2M2.5 5.5L6 2l3.5 3.5"/></svg>
             {:else if it.status === 'processing'}
               <span class="spin"></span>
-            {:else if it.status === 'failed' || it.status === 'processing_failed' || it.status === 'abandoned'}
+            {:else if it.status === 'failed' || it.status === 'processing_failed' || it.status === 'abandoned' || it.status === 'retrying'}
               <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2.5v4M6 9v.5"/></svg>
             {:else}
               <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="6" r="4.2"/><path d="M6 3.6V6l1.6 1"/></svg>
@@ -70,7 +70,8 @@
   .badge :global(svg) { width: 12px; height: 12px; flex-shrink: 0; display: block; }
   .b-ready { color: var(--ev-success); }
   .b-uploading, .b-processing { color: var(--ev-blue); }
-  .b-waiting_network, .b-waiting_share { color: var(--ev-orange); }
+  .b-offline, .b-queued, .b-waiting_share { color: var(--ev-orange); }
+  .b-retrying { color: var(--ev-danger); }
   .b-failed, .b-processing_failed, .b-abandoned { color: var(--ev-danger); }
   .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,0.12); }
   .fill { display: block; height: 100%; background: var(--ev-blue); transition: width 200ms linear; }

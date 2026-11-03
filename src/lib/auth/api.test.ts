@@ -237,6 +237,15 @@ describe('uploadMultipart()', () => {
     expect(err.retriable).toBe(true);
   });
 
+  it('a network error names the target and the page origin, so a device report can tell CORS from no connectivity', async () => {
+    vi.stubGlobal('location', { origin: 'eigenvertex-recorder://localhost' });
+    FakeXHR.script.push((x) => x.onerror?.());
+    const err = (await uploadMultipart('/p', new FormData()).catch((e) => e)) as ApiError;
+    expect(err.message).toContain('https://api.eigenvertex.com');
+    expect(err.message).toContain('eigenvertex-recorder://localhost');
+    expect(err.message).toMatch(/CORS/);
+  });
+
   it('maps a timeout to a retriable ApiError(0)', async () => {
     FakeXHR.script.push((x) => x.ontimeout?.());
     const err = (await uploadMultipart('/p', new FormData()).catch((e) => e)) as ApiError;

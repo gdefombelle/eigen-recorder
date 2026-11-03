@@ -504,3 +504,27 @@ describe('retryAll — the end-of-record "Retry" button', () => {
     expect((await env.storage.getAttachment(abandoned.local_attachment_id))?.state).toBe('abandoned');
   });
 });
+
+
+describe('unexpected errors are visible, not silent', () => {
+  it('an exception before the request (e.g. local storage read) is recorded as the last error, backs off, and does not stall the other items', async () => {
+    env.sessions.set('local-1', 'srv-1');
+    const q = env.newQueue();
+    const bad = await q.add(photo('bad'));
+    await q.whenIdle();
+    const good = await q.add(photo('good'));
+    await q.whenIdle();
+    // rewind both to queued; make the FIRST one's blob unreadable
+    for (const a of [bad, good]) await env.storage.putAttachment({ ...(await env.storage.getAttachment(a.local_attachment_id))!, state: 'queued', server_attachment_id: null, server_status: null });
+    const realGet = env.storage.getAttachmentBlob;
+    env.storage.getAttachmentBlob = async (id) => { if (id === bad.local_attachment_id) throw new Error('IDB exploded'); return realGet(id); };
+
+    await q.kick();
+
+    const badRow = (await env.storage.getAttachment(bad.local_attachment_id))!;
+    expect(badRow.state).toBe('queued');
+    expect(badRow.attempts).toBe(1);
+    expect(badRow.last_error?.message).toContain('IDB exploded');
+    expect((await env.storage.getAttachment(good.local_attachment_id))?.state).toBe('uploaded');
+  });
+});

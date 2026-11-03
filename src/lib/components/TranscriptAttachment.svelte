@@ -20,18 +20,42 @@
   let opening = $state(false);
   let error = $state('');
 
-  // Thumbnail from the copy on this device only — never a download just to draw a list.
+  let root = $state<HTMLElement | undefined>(undefined);
+  let cached: Blob | null = null;           // fetched once for the preview, reused by "Open"
+
+  async function getBlob(): Promise<Blob> {
+    if (cached) return cached;
+    cached = await fetchAttachmentBlob(
+      { getLocalBlob: (id) => offlineStorage.getAttachmentBlob(id), api: await getAttachmentApi() },
+      sessionId,
+      record,
+    );
+    return cached;
+  }
+
+  // Preview: the copy on this device while it is there, otherwise the file is downloaded (authenticated, as a
+  // blob) — but only once the card scrolls into view, so a long transcript does not fetch every photo at once.
   onMount(() => {
     let alive = true;
     let url: string | null = null;
-    if (isPhoto) {
-      offlineStorage.getAttachmentBlob(record.client_attachment_id).then((blob) => {
-        if (!blob || !alive) return;
+    let io: IntersectionObserver | null = null;
+    const loadPreview = () => {
+      getBlob().then((blob) => {
+        if (!alive) return;
         url = URL.createObjectURL(blob);
         thumbUrl = url;
-      }).catch(() => {});
+      }).catch(() => { /* no preview — the card stays usable, Open reports the error */ });
+    };
+    if (isPhoto && root) {
+      if (typeof IntersectionObserver === 'undefined') loadPreview();
+      else {
+        io = new IntersectionObserver((entries) => {
+          if (entries.some((e) => e.isIntersecting)) { io?.disconnect(); loadPreview(); }
+        }, { rootMargin: '200px' });
+        io.observe(root);
+      }
     }
-    return () => { alive = false; if (url) URL.revokeObjectURL(url); };
+    return () => { alive = false; io?.disconnect(); if (url) URL.revokeObjectURL(url); };
   });
 
   function closeViewer() {
@@ -42,11 +66,7 @@
   async function open() {
     opening = true; error = '';
     try {
-      const blob = await fetchAttachmentBlob(
-        { getLocalBlob: (id) => offlineStorage.getAttachmentBlob(id), api: await getAttachmentApi() },
-        sessionId,
-        record,
-      );
+      const blob = await getBlob();
       if (isPhoto) viewerUrl = URL.createObjectURL(blob);
       else await openDocument(blob, attachmentFilename(record.title, record.stored_file?.content_type ?? blob.type));
     } catch {
@@ -57,7 +77,7 @@
   }
 </script>
 
-<div class="att" class:has-thumb={!!thumbUrl}>
+<div class="att" class:has-thumb={!!thumbUrl} bind:this={root}>
   {#if thumbUrl}
     <div class="preview">
       <img src={thumbUrl} alt="" draggable="false" />

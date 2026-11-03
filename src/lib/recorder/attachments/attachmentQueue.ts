@@ -215,21 +215,39 @@ export function createAttachmentQueue(deps: QueueDeps) {
     // asked for one): the server may or may not have created it, and DELETE settles it.
   }
 
+  /**
+   * An unexpected exception (storage, dynamic import, bridge…) must not stall the queue silently with nothing on
+   * screen: record it as the item's last error and back off, so it shows up in the diagnostic line.
+   */
+  async function guarded(att: LocalAttachment, work: () => Promise<void>): Promise<void> {
+    try {
+      await work();
+    } catch (e) {
+      const message = `Internal error: ${e instanceof Error ? e.message : String(e)}`;
+      await patch(att.local_attachment_id, { state: att.state === 'uploading' ? 'queued' : att.state, ...backoffPatch(att, { kind: 'transient', status: 0, message }) })
+        .catch(() => { /* storage itself is down: nothing more can be recorded */ });
+    }
+  }
+
   async function pass(): Promise<void> {
     for (const row of await storage.getAllAttachments()) {
       if (!deps.isOnline()) return;
       const att = await storage.getAttachment(row.local_attachment_id);
       if (!att) continue;
-      const due = (att.next_attempt_at ?? 0) <= deps.now();
-      if (att.pending_delete) { if (due) await processDelete(att); continue; }
-      if (att.state === 'uploading' && !inflight.has(att.local_attachment_id)) {
-        await patch(att.local_attachment_id, { state: 'queued' });   // left over from a killed app
-        if (due) await processUpload({ ...att, state: 'queued' });
-        continue;
-      }
-      if (att.state === 'queued' && due) await processUpload(att);
-      else if (att.state === 'uploaded' && att.title_dirty && due) await processTitle(att);
+      await guarded(att, () => processOne(att));
     }
+  }
+
+  async function processOne(att: LocalAttachment): Promise<void> {
+    const due = (att.next_attempt_at ?? 0) <= deps.now();
+    if (att.pending_delete) { if (due) await processDelete(att); return; }
+    if (att.state === 'uploading' && !inflight.has(att.local_attachment_id)) {
+      await patch(att.local_attachment_id, { state: 'queued' });   // left over from a killed app
+      if (due) await processUpload({ ...att, state: 'queued' });
+      return;
+    }
+    if (att.state === 'queued' && due) await processUpload(att);
+    else if (att.state === 'uploaded' && att.title_dirty && due) await processTitle(att);
   }
 
   async function scheduleNext(): Promise<void> {

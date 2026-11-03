@@ -9,21 +9,34 @@
   let tr = $derived.by(() => { $langStore; return t().attachments; });
 </script>
 
-{#if summary.uploading > 0}
+{#if summary.sending > 0}
   <div class="banner info" role="status">
     <span class="ico spin" aria-hidden="true"></span>
-    <div class="txt"><strong>{tr.syncUploading(summary.uploading)}</strong></div>
+    <div class="txt"><strong>{tr.syncUploading(summary.sending)}</strong></div>
   </div>
 {/if}
 
-{#if summary.waitingNetwork > 0}
+{#if summary.offline > 0}
   <div class="banner wait" role="status">
     <span class="ico" aria-hidden="true">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
     </span>
     <div class="txt">
-      <strong>{tr.syncWaitingNetworkTitle(summary.waitingNetwork)}</strong>
-      <small>{tr.syncWaitingNetworkBody(summary.waitingNetwork)}</small>
+      <strong>{tr.syncOfflineTitle(summary.offline)}</strong>
+      <small>{tr.syncOfflineBody(summary.offline)}</small>
+    </div>
+    <button type="button" class="retry" onclick={onretry}>{tr.retry}</button>
+  </div>
+{/if}
+
+{#if summary.retrying > 0}
+  <div class="banner fail" role="alert">
+    <span class="ico" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>
+    </span>
+    <div class="txt">
+      <strong>{tr.syncRetryingTitle(summary.retrying)}</strong>
+      <small>{tr.syncRetryingBody}</small>
     </div>
     <button type="button" class="retry" onclick={onretry}>{tr.retry}</button>
   </div>

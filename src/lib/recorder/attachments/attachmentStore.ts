@@ -18,12 +18,13 @@ export function attachmentsFor(localSessionId: string): Readable<AttachmentView[
   return readable<AttachmentView[]>([], (set) => {
     let rows: LocalAttachment[] = [];
     let hasRemote = false;
+    let online = typeof navigator === 'undefined' || navigator.onLine;
     const progress = new Map<string, number>();
     let disposed = false;
 
     const emit = () => {
       if (disposed) return;
-      set(visibleViews(rows, (a) => ({ progress: progress.get(a.local_attachment_id), hasRemoteSession: hasRemote })));
+      set(visibleViews(rows, (a) => ({ progress: progress.get(a.local_attachment_id), hasRemoteSession: hasRemote, online })));
     };
 
     const reload = async () => {
@@ -44,12 +45,22 @@ export function attachmentsFor(localSessionId: string): Readable<AttachmentView[
       else if (e.type === 'progress') { progress.set(e.id, e.fraction); emit(); }
     });
 
+    const setOnline = (v: boolean) => () => { online = v; emit(); };
+    const goOnline = setOnline(true), goOffline = setOnline(false);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', goOnline);
+      window.addEventListener('offline', goOffline);
+    }
+
     const poll = setInterval(() => {
       if (rows.some((r) => r.state === 'uploaded' && r.server_status === 'processing')) {
         void attachmentQueue.refreshStatuses(localSessionId);
       }
     }, STATUS_POLL_MS);
 
-    return () => { disposed = true; unsub(); clearInterval(poll); };
+    return () => {
+      disposed = true; unsub(); clearInterval(poll);
+      if (typeof window !== 'undefined') { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline); }
+    };
   });
 }
