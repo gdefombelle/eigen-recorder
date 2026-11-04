@@ -11,7 +11,6 @@
   import { getBrowserName, isIOS, formatBytes } from '$lib/recorder/utils';
   import { audioEngineStore, setAudioEngine } from '$lib/recorder/audioEngine';
   import { isNative } from '$lib/platform';
-  import { isScanEnabled, setScanEnabled } from '$lib/recorder/scan/scanSetting';
 
   $: _auth  = $authStore;
   $: _lang  = $langStore;
@@ -55,8 +54,6 @@
 
   let keychainState = 'checking…';
   let idbState      = 'checking…';
-  let scanOn = isScanEnabled();
-  function toggleScan() { scanOn = !scanOn; setScanEnabled(scanOn); }
 
   onMount(() => {
     urlInput = isProxyMode() ? '' : getServerUrl();
@@ -361,9 +358,6 @@
           <span class="diag-key">Keychain</span>  <span class="diag-val">{keychainState}</span>
           <span class="diag-key">Build</span>      <span class="diag-val">{__BUILD_STAMP__}</span>
         </div>
-        {#if isNative()}
-          <label class="scan-toggle"><input type="checkbox" checked={scanOn} on:change={toggleScan} /> {t().settings.scanExperimental}</label>
-        {/if}
       </section>
 
       <!-- ── iOS notes ── -->
@@ -656,7 +650,6 @@
   .s-danger-btn:hover:not(:disabled) { background: rgba(229,72,77,0.08); }
   .s-danger-btn:disabled { opacity: 0.35; cursor: default; }
 
-  .scan-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 0.82rem; color: var(--ev-text-dim); }
 
   /* Diagnostics */
   .diag-grid {

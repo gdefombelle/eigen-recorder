@@ -56,10 +56,3 @@ describe('scan strings — agreed wording, FR/EN', () => {
     setLang('en'); expect(t().attachments.errScanTooLarge(31)).toMatch(/31 MB.*25 MB/);
   });
 });
-
-describe('settings — scan opt-in label', () => {
-  it('exists in both languages', () => {
-    setLang('fr'); expect(t().settings.scanExperimental).toBe('Scanner un document (expérimental)');
-    setLang('en'); expect(t().settings.scanExperimental).toBe('Scan a document (experimental)');
-  });
-});

@@ -1,12 +1,12 @@
 # Scan de document : état réel et gate de l'étape 4
 
-> ## ⚠ Ne pas passer le réglage à « activé par défaut » tant que le gate ci-dessous n'est pas passé
-> L'entrée « Scanner un document » n'apparaît dans la feuille « Ajouter au record » que si
-> **Réglages → Diagnostics → « Scanner un document (expérimental) »** est activé (désactivé par défaut,
-> clé `ev_scan_enabled`, `src/lib/recorder/scan/scanSetting.ts`). Elle est de toute façon toujours masquée dans la PWA.
-> Un build livré à d'autres utilisateurs ne montre donc pas le scan tant qu'on n'a pas décidé de le faire.
-> Le panneau de test « Scan spike » et sa sonde native ont été **retirés** du build (la version livrée n'en contient plus) ;
-> ils restent récupérables dans l'historique git (dernier commit qui les contient : `bb1ff5b`) si on veut refaire des mesures.
+> ## ⚠ Le scan est actif pour tous les utilisateurs de l'app iOS, SANS interrupteur
+> Décision de Gabriel (2026-11-04) : « il est tout le temps activé ». L'entrée « Scanner un document » est toujours dans la
+> feuille « Ajouter au record » de l'app iOS, et masquée dans la PWA. Le gate ci-dessous n'a **pas** été passé : les points
+> « non prouvé » plus bas sont des risques acceptés, pas des vérifications faites. Pour retirer l'entrée en cas de problème,
+> `getScanEngine()` (`src/lib/recorder/scan/scanEngine.ts`) doit retourner `null`.
+> Le panneau de test « Scan spike » et sa sonde native ont été **retirés** du build ; ils restent récupérables dans
+> l'historique git (dernier commit qui les contient : `bb1ff5b`).
 
 ## État réel au 2026-11-04 (décision de Gabriel : on boucle sans passer le gate)
 
@@ -31,7 +31,7 @@
 - le faux échec du « mode avion » (flux déjà à l'arrêt avant le scan) est classé non applicable.
 
 ## Reste à faire plus tard
-1. **Gate complet** (section suivante), avant d'envisager l'activation par défaut ou une release avec le scan.
+1. **Gate complet** (section suivante) : le scan est déjà livré actif, donc c'est maintenant une vérification a posteriori.
 2. **`PrivacyInfo.xcprivacy` et « App Privacy » d'App Store Connect** à mettre à jour avant la prochaine soumission
    (propositions non appliquées : `docs/privacy-pieces-jointes.md`, sections 2, 3 et 6).
 3. **Test PWA** de la caméra et du micro (voir ci-dessus).
@@ -40,7 +40,7 @@
 
 ## Gate de l'étape 4 (à faire sur l'iPhone, avant tout merge ou release)
 
-**Règle** : si un critère échoue, on ne livre pas. On garde le réglage désactivé par défaut (ou on masque l'entrée), on note lequel et ce qui a été observé, et on rediscute. Rien n'est poussé
+**Règle** : si un critère échoue, on masque l'entrée (`getScanEngine()` → `null`), on note lequel et ce qui a été observé, et on rediscute. Rien n'est poussé
 avant.
 
 État des preuves au 2026-11-04 (honnête) : le spike n'a mesuré que 2 scans d'**une** page en Stream. Jamais de
@@ -49,7 +49,7 @@ Le « mode avion » du premier essai est classé non applicable (flux déjà à 
 
 ## Préparation
 1. `npm run cap:sync`, puis Cmd+R dans Xcode **sans supprimer l'app** (des sessions locales non envoyées seraient perdues).
-2. Activer Réglages → Diagnostics → « Scanner un document (expérimental) ». Le panneau et la sonde qui mesuraient
+2. Le scan est déjà actif. Le panneau et la sonde qui mesuraient
    l'horloge audio, le flux et la session audio ne sont plus dans le build : pour ces mesures, les restaurer depuis `bb1ff5b`
    (`git checkout bb1ff5b -- <fichiers spike>`), ou se contenter de l'analyse du fichier audio, du transcript et des logs serveur.
 3. Source sonore continue : `python3 scripts/spike/analyze-audio.py --make-counting counting.aiff`, puis `afplay counting.aiff`

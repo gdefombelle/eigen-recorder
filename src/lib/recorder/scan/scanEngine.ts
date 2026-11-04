@@ -10,7 +10,6 @@
 import { isNative } from '$lib/platform';
 import { MAX_ATTACHMENT_BYTES } from '../attachments/types';
 import { prepareDocument } from '../attachments/imagePrep';
-import { isScanEnabled } from './scanSetting';
 
 export interface ScanResult {
   /** The PDF, as an in-memory Blob (never file-backed) with its SHA-256. */
@@ -122,13 +121,9 @@ export function createNativeScanEngine(deps: NativeScanDeps): ScanEngine {
   };
 }
 
-/**
- * The engine for this platform, or null when scanning is not offered: the PWA / web, Android, or the user has not
- * switched on Réglages → Diagnostics → « Scanner un document (expérimental) » (off by default).
- */
-export function getScanEngine(enabled: boolean = isScanEnabled(), native: () => boolean = isNative): ScanEngine | null {
-  if (!enabled || !native()) return null;
-  return nativeEngine();
+/** The engine for this platform, or null when scanning is not offered (web / PWA, Android). Always on in the iOS app. */
+export function getScanEngine(native: () => boolean = isNative): ScanEngine | null {
+  return native() ? nativeEngine() : null;
 }
 
 let _native: ScanEngine | null = null;
