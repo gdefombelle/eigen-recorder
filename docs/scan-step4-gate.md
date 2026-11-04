@@ -1,7 +1,46 @@
-# Scan de document : gate de l'étape 4 (à faire sur l'iPhone, avant tout merge ou release)
+# Scan de document : état réel et gate de l'étape 4
 
-**Règle** : si un critère échoue, on ne livre pas. On masque l'entrée (`SCAN_ENTRY_ENABLED = false` dans
-`src/lib/recorder/scan/scanEngine.ts`), on note lequel et ce qui a été observé, et on rediscute. Rien n'est poussé
+> ## ⚠ Ne pas passer le réglage à « activé par défaut » tant que le gate ci-dessous n'est pas passé
+> L'entrée « Scanner un document » n'apparaît dans la feuille « Ajouter au record » que si
+> **Réglages → Diagnostics → « Scanner un document (expérimental) »** est activé (désactivé par défaut,
+> clé `ev_scan_enabled`, `src/lib/recorder/scan/scanSetting.ts`). Elle est de toute façon toujours masquée dans la PWA.
+> Un build livré à d'autres utilisateurs ne montre donc pas le scan tant qu'on n'a pas décidé de le faire.
+> Le panneau de test « Scan spike » reste derrière sa propre case (Diagnostics, désactivée par défaut, iOS uniquement) :
+> il servira au gate.
+
+## État réel au 2026-11-04 (décision de Gabriel : on boucle sans passer le gate)
+
+**Prouvé** (iPhone, mode Stream, record en cours, scans d'une page, mesures du panneau « Scan spike ») :
+- horloge audio de l'app = temps réel (+13 134 ms pour +13 135 ms ; +11 724 ms pour +11 724 ms) ;
+- flux resté `streaming`, frames envoyées au rythme attendu (41 pour ~40 ; 36 pour ~37) ;
+- aucune interruption de la session audio, aucun reset des services média, aucun changement de route pendant le scan ;
+- WebView non rechargée, aucun gel de timer notable (64 ms et 8 ms au plus), app restée active.
+
+**Observé par Gabriel sur l'iPhone** (captures du 2026-11-04, pas de mesure automatisée) :
+- la feuille affiche les 4 entrées, la bande affiche « Scan mm:ss » avec la vraie page 1 en vignette et le badge « N p. » ;
+- les PDF partent (coche verte « Prêt »), sont lisibles, la vignette est dans le bon sens, et la pièce arrive dans Eigen Studio.
+
+**NON prouvé** (rien de ceci n'a été mesuré) :
+- scans de **5 et de 10 pages** (tous les scans réels faits sont d'une seule page ; deux essais « 5 p. » n'ont rendu qu'une page, cause inconnue) ;
+- **analyse du fichier audio exporté** : durée à ± 1 s, silences de plus de 500 ms aux instants des scans (l'horloge de l'app n'est pas un échantillon audio) ;
+- **transcript du comptage** continu autour des scans (mode Stream) ;
+- **un seul `session_hello`** côté serveur (pas de reconnexion du WebSocket) ;
+- **mode « Local seulement »** (micro natif) ;
+- **comportement PWA** : l'ouverture de la caméra suspend-elle la page / coupe-t-elle le micro ? (entrée masquée en attendant) ;
+- sur appareil : recompression sous 25 Mo, mémoire sur 10 pages, nettoyage des temporaires, reprise depuis l'arrière-plan, envoi hors ligne puis reconnexion (ces deux derniers ne sont couverts que par des tests automatisés) ;
+- le faux échec du « mode avion » (flux déjà à l'arrêt avant le scan) est classé non applicable.
+
+## Reste à faire plus tard
+1. **Gate complet** (section suivante), avant d'envisager l'activation par défaut ou une release avec le scan.
+2. **`PrivacyInfo.xcprivacy` et « App Privacy » d'App Store Connect** à mettre à jour avant la prochaine soumission
+   (propositions non appliquées : `docs/privacy-pieces-jointes.md`, sections 2, 3 et 6).
+3. **Test PWA** de la caméra et du micro (voir ci-dessus).
+
+---
+
+## Gate de l'étape 4 (à faire sur l'iPhone, avant tout merge ou release)
+
+**Règle** : si un critère échoue, on ne livre pas. On garde le réglage désactivé par défaut (ou on masque l'entrée), on note lequel et ce qui a été observé, et on rediscute. Rien n'est poussé
 avant.
 
 État des preuves au 2026-11-04 (honnête) : le spike n'a mesuré que 2 scans d'**une** page en Stream. Jamais de

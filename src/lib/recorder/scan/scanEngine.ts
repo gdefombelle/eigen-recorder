@@ -10,6 +10,7 @@
 import { isNative } from '$lib/platform';
 import { MAX_ATTACHMENT_BYTES } from '../attachments/types';
 import { prepareDocument } from '../attachments/imagePrep';
+import { isScanEnabled } from './scanSetting';
 
 export interface ScanResult {
   /** The PDF, as an in-memory Blob (never file-backed) with its SHA-256. */
@@ -122,13 +123,10 @@ export function createNativeScanEngine(deps: NativeScanDeps): ScanEngine {
 }
 
 /**
- * Kill switch. Step 4 (device gate: 1/5/10 pages in Stream and Local, audio analysis, transcript) decides whether the
- * scanner ships. If a criterion fails, set this to false: the sheet entry disappears, nothing else changes.
+ * The engine for this platform, or null when scanning is not offered: the PWA / web, Android, or the user has not
+ * switched on Réglages → Diagnostics → « Scanner un document (expérimental) » (off by default).
  */
-export const SCAN_ENTRY_ENABLED = true;
-
-/** The engine for this platform, or null when scanning is not offered (web / PWA, Android, or switched off). */
-export function getScanEngine(enabled: boolean = SCAN_ENTRY_ENABLED, native: () => boolean = isNative): ScanEngine | null {
+export function getScanEngine(enabled: boolean = isScanEnabled(), native: () => boolean = isNative): ScanEngine | null {
   if (!enabled || !native()) return null;
   return nativeEngine();
 }

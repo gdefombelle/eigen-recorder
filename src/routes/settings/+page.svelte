@@ -11,6 +11,7 @@
   import { getBrowserName, isIOS, formatBytes } from '$lib/recorder/utils';
   import { audioEngineStore, setAudioEngine } from '$lib/recorder/audioEngine';
   import { isNative } from '$lib/platform';
+  import { isScanEnabled, setScanEnabled } from '$lib/recorder/scan/scanSetting';
 
   $: _auth  = $authStore;
   $: _lang  = $langStore;
@@ -56,6 +57,8 @@
   let idbState      = 'checking…';
   // TEMPORARY: shows the scan-spike test panel on the record screen (iOS app).
   let spikeOn = (() => { try { return localStorage.getItem('ev_scan_spike') === '1'; } catch { return false; } })();
+  let scanOn = isScanEnabled();
+  function toggleScan() { scanOn = !scanOn; setScanEnabled(scanOn); }
   function toggleSpike() { spikeOn = !spikeOn; try { spikeOn ? localStorage.setItem('ev_scan_spike', '1') : localStorage.removeItem('ev_scan_spike'); } catch { /* */ } }
 
   onMount(() => {
@@ -362,6 +365,7 @@
           <span class="diag-key">Build</span>      <span class="diag-val">{__BUILD_STAMP__}</span>
         </div>
         {#if isNative()}
+          <label class="spike-toggle"><input type="checkbox" checked={scanOn} on:change={toggleScan} /> {t().settings.scanExperimental}</label>
           <label class="spike-toggle"><input type="checkbox" checked={spikeOn} on:change={toggleSpike} /> Scan spike (test panel on the record screen)</label>
         {/if}
       </section>

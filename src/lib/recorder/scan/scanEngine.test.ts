@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createNativeScanEngine, getScanEngine, SCAN_ENTRY_ENABLED, ScanTooLargeError, ScanFailedError, type NativeScannerPlugin, type NativeScanResponse } from './scanEngine';
+import { createNativeScanEngine, getScanEngine, ScanTooLargeError, ScanFailedError, type NativeScannerPlugin, type NativeScanResponse } from './scanEngine';
 import { sha256Hex } from '../attachments/imagePrep';
+import { setScanEnabled } from './scanSetting';
 
 const PDF = new TextEncoder().encode('%PDF-1.4\n…binary…\n%%EOF\n');
 const pdfBlob = (bytes: Uint8Array = PDF) => new Blob([bytes as BlobPart], { type: 'application/pdf' });
@@ -125,16 +126,25 @@ describe('native scan engine', () => {
 });
 
 describe('getScanEngine — where the entry exists', () => {
-  it('no engine on the web / PWA (the sheet hides the entry)', () => {
+  it('no engine on the web / PWA, even when the setting is on', () => {
     expect(getScanEngine(true, () => false)).toBeNull();
   });
-  it('an engine in the native iOS app', () => {
+  it('an engine in the native iOS app once the setting is on', () => {
     expect(getScanEngine(true, () => true)?.id).toBe('native-ios');
   });
-  it('the kill switch hides it even in the native app', () => {
+  it('no engine in the native app while the setting is off', () => {
     expect(getScanEngine(false, () => true)).toBeNull();
   });
-  it('ships enabled by default', () => {
-    expect(SCAN_ENTRY_ENABLED).toBe(true);
+  it('with no argument it follows the persisted setting (off by default)', () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+    try {
+      expect(getScanEngine(undefined, () => true)).toBeNull();
+      setScanEnabled(true);
+      expect(getScanEngine(undefined, () => true)?.id).toBe('native-ios');
+      expect(getScanEngine(undefined, () => false)).toBeNull();
+      setScanEnabled(false);
+      expect(getScanEngine(undefined, () => true)).toBeNull();
+    } finally { vi.unstubAllGlobals(); }
   });
 });

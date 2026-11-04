@@ -64,8 +64,9 @@
   let attachListOpen  = $state(false);
   let attachOffsetMs  = $state(0);
   let attachNotice    = $state('');
-  // The scanner exists only in the iOS app (null in the PWA, where the entry is hidden). One scan at a time.
-  const scanEngine = getScanEngine();
+  // The scanner exists only in the iOS app AND only when Réglages → Diagnostics → « Scanner un document (expérimental) »
+  // is on (off by default). Re-read each time the sheet opens, so a change in Settings applies at once. One scan at a time.
+  let scanEngine = $state<ReturnType<typeof getScanEngine>>(null);
   let scanning = $state(false);
   let attachNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let attachSummary = $derived(summarize(attachmentItems));
@@ -100,6 +101,7 @@
   async function openAttachSheet() {
     if (!(isRecording || isPaused)) return;
     attachOffsetMs = await recorderStore.getCaptureOffsetMs();
+    scanEngine = getScanEngine();
     attachSheetOpen = true;
   }
 

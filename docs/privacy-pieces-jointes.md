@@ -1,6 +1,7 @@
 # Pièces jointes — confidentialité App Store (à valider, rien d'appliqué)
 
 Statut : **proposition**. Aucun fichier du dépôt n'a été modifié pour cela.
+**À faire avant la prochaine soumission** : appliquer `PrivacyInfo.xcprivacy` et mettre à jour « App Privacy » dans App Store Connect (non fait ; voir aussi la section 6 pour le scan).
 Rédigé pour la resoumission qui inclut les pièces jointes (photos et documents
 ajoutés pendant un record).
 
