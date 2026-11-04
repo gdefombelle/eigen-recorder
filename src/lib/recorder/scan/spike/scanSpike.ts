@@ -30,6 +30,9 @@ export interface ProbeSnap {
   routeChanges:        unknown[];
   category:            string;
   mode:                string;
+  /** AVAudioSession.CategoryOptions raw value + names (absent on older probe builds). */
+  categoryOptions?:      number;
+  categoryOptionsNames?: string[];
   appState:            number;
 }
 
@@ -95,6 +98,11 @@ export function evaluateScan(m: ScanMeasurement): ScanVerdict {
     const d = (k: 'interruptionBegan' | 'mediaServicesResets' | 'resignActive') => m.probeAfter![k] - m.probeBefore![k];
     add('no_audio_session_interruption', d('interruptionBegan') === 0 && d('mediaServicesResets') === 0,
       `interruptions +${d('interruptionBegan')}, media-services resets +${d('mediaServicesResets')}, route changes +${m.probeAfter.routeChanges.length - m.probeBefore.routeChanges.length}`);
+    // Informational: did the audio session's category / mode / options change across the scan? (We observe, we never set.)
+    const cfg = (p: ProbeSnap) => `${p.category} · ${p.mode} · [${(p.categoryOptionsNames ?? []).join(', ')}]`;
+    const before = cfg(m.probeBefore), after = cfg(m.probeAfter);
+    add('audio_session_config_unchanged', before === after,
+      before === after ? `unchanged: ${after}` : `before: ${before} → after: ${after}`, true);
     add('app_stayed_active', d('resignActive') === 0, `willResignActive +${d('resignActive')}`, true);
   }
 

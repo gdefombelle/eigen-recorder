@@ -57,6 +57,22 @@ describe('evaluateScan', () => {
     expect(failing(good({ after: snap({ state: 'paused', wasInterrupted: true, framesStreamed: 162, audioOffsetMs: 80_000, wallMs: 1_020_000 }) }))).toContain('recorder_not_interrupted');
   });
 
+  it('reports the audio session category / mode / options before and after (informational, never fails the spike)', () => {
+    const same = evaluateScan(good({ probeBefore: probe({ categoryOptionsNames: ['allowBluetooth'] }), probeAfter: probe({ categoryOptionsNames: ['allowBluetooth'] }) }));
+    const c = same.checks.find((x) => x.id === 'audio_session_config_unchanged')!;
+    expect(c).toMatchObject({ ok: true, informational: true });
+    expect(c.detail).toContain('playAndRecord · videoChat · [allowBluetooth]');
+
+    for (const changed of [{ category: 'soloAmbient' }, { mode: 'default' }, { categoryOptionsNames: ['mixWithOthers'] }]) {
+      const v = evaluateScan(good({ probeBefore: probe({ categoryOptionsNames: ['allowBluetooth'] }), probeAfter: probe({ categoryOptionsNames: ['allowBluetooth'], ...changed }) }));
+      const x = v.checks.find((k) => k.id === 'audio_session_config_unchanged')!;
+      expect(x.ok).toBe(false);
+      expect(x.detail).toContain('before:');
+      expect(x.detail).toContain('after:');
+      expect(v.pass).toBe(true);        // informational: a change is reported, it does not fail the spike
+    }
+  });
+
   it('an iOS audio-session interruption seen by the native probe fails', () => {
     expect(failing(good({ probeAfter: probe({ interruptionBegan: 1 }) }))).toContain('no_audio_session_interruption');
     expect(failing(good({ probeAfter: probe({ mediaServicesResets: 1 }) }))).toContain('no_audio_session_interruption');

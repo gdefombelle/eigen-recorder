@@ -60,11 +60,27 @@ public class ScanSpikeProbePlugin: CAPPlugin, CAPBridgedPlugin {
             "routeChanges":        routeChanges,
             "category":            s.category.rawValue,
             "mode":                s.mode.rawValue,
+            "categoryOptions":     s.categoryOptions.rawValue,
+            "categoryOptionsNames": Self.optionNames(s.categoryOptions),
             "isOtherAudioPlaying": s.isOtherAudioPlaying,
             "sampleRate":          s.sampleRate,
             "inputs":              s.currentRoute.inputs.map { $0.portType.rawValue },
             "appState":            UIApplication.shared.applicationState.rawValue
         ])
+    }
+
+    /// Human-readable AVAudioSession.CategoryOptions (read-only: the probe never changes the session).
+    private static func optionNames(_ o: AVAudioSession.CategoryOptions) -> [String] {
+        var names: [String] = []
+        if o.contains(.mixWithOthers)                         { names.append("mixWithOthers") }
+        if o.contains(.duckOthers)                            { names.append("duckOthers") }
+        if o.contains(.interruptSpokenAudioAndMixWithOthers)  { names.append("interruptSpokenAudioAndMixWithOthers") }
+        if o.contains(.allowBluetooth)                        { names.append("allowBluetooth") }
+        if o.contains(.allowBluetoothA2DP)                    { names.append("allowBluetoothA2DP") }
+        if o.contains(.allowAirPlay)                          { names.append("allowAirPlay") }
+        if o.contains(.defaultToSpeaker)                      { names.append("defaultToSpeaker") }
+        if o.contains(.overrideMutedMicrophoneInterruption)   { names.append("overrideMutedMicrophoneInterruption") }
+        return names
     }
 
     @objc private func onInterruption(_ n: Notification) {
