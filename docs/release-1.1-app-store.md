@@ -1,0 +1,56 @@
+# Eigen Pocket 1.1 (build 6) : préparation App Store
+
+Statut au 2026-11-04. Code poussé jusqu'à `bb39281` ; les commits `fa27e5f` (PrivacyInfo) et `2f1d430` (texte du micro)
+sont locaux. Le gate du scan n'a pas été passé (risques acceptés : `docs/scan-step4-gate.md`).
+
+## 1. Avant d'archiver
+- [x] Version 1.1, build 6 (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`), `ITSAppUsesNonExemptEncryption = false`
+- [x] `npm run cap:sync` et build Release iPhone (sans signature) réussis ; 435 tests, 0 erreur svelte-check
+- [x] `PrivacyInfo.xcprivacy` (les deux copies) : photos/vidéos et autre contenu utilisateur déclarés, liés, sans suivi
+- [x] Texte du micro corrigé (Stream = envoi en direct)
+- [ ] Pousser `fa27e5f` et `2f1d430` (`git push`)
+- [ ] Xcode : « Any iOS Device (arm64) » → Product → Archive → Distribute App → App Store Connect
+- [ ] Ne pas supprimer l'app sur l'iPhone avant d'installer un build de test (sessions locales non envoyées)
+
+## 2. App Store Connect → Confidentialité de l'app
+Les quatre types ci-dessous reflètent ce que fait l'app (tout est envoyé dans le compte de l'utilisateur, aucun suivi,
+finalité « Fonctionnalités de l'app » uniquement).
+
+| Type | Collecté | Lié à l'utilisateur | Suivi |
+|---|---|---|---|
+| Photos ou vidéos (photos, pages scannées) | Oui | **Oui** | Non |
+| Autre contenu utilisateur (documents, PDF de scan) | Oui | **Oui** | Non |
+| Données audio | Oui | **Oui** (voir ci-dessous) | Non |
+| Position précise | Oui | **Oui** (voir ci-dessous) | Non |
+
+À trancher : dans `PrivacyInfo.xcprivacy`, l'audio et la position sont encore à `Linked = false` (déclaration du build 1.0,
+non modifiée). Si vous répondez « Oui » ici pour l'audio et la position, alignez le fichier au prochain build ; sinon
+gardez « Non » partout pour ces deux-là. Le plus simple et le plus cohérent est « Oui » pour les quatre.
+Questions tiers (4.3.4 de `docs/privacy-pieces-jointes.md`) : répondre selon l'infrastructure réelle (stockage objet,
+éventuels fournisseurs d'IA) ; aucune pièce n'est analysée automatiquement par l'app.
+
+## 3. Textes de la fiche (à adapter)
+
+**Nouveautés, français**
+> Pièces jointes pendant l'enregistrement : prenez une photo, choisissez des images ou des documents, ou scannez un
+> document (détection des bords, PDF multipages) sans interrompre l'audio. Elles sont placées sur la timeline du record
+> et envoyées automatiquement, même si le réseau revient plus tard. Statuts d'envoi plus précis, relance automatique de
+> la fin de record, et les notes « Local » déjà terminées côté serveur passent désormais en « Envoyée ».
+
+**What's New, English**
+> Attachments while you record: take a photo, pick images or documents, or scan a document (edge detection,
+> multi-page PDF) without interrupting the audio. They are placed on the record's timeline and sent automatically, even
+> if the network comes back later. Clearer sending statuses, automatic retry when a record ends, and "Local" notes already
+> finished on the server now show as "Sent".
+
+## 4. Notes pour l'équipe de review (anglais)
+> Eigen Pocket records meeting audio and lets the user attach photos, documents and document scans to a recording.
+> The camera (photo or VisionKit document scanner) is only opened by the user during a recording and the audio keeps
+> recording meanwhile. Photos and scans are sent to the user's own EigenVertex account. Sign-in uses the user's
+> EigenVertex account: [identifiants de test à renseigner avant l'envoi].
+
+## 5. Hors fichiers de l'app
+- Politique de confidentialité : ajouter photos, documents et scans (nature, finalité, durée de conservation, sous-traitants).
+- Suppression : supprimer une pièce est une suppression logique côté serveur (le fichier reste dans le stockage) ; la
+  formulation de la politique et la suppression de compte doivent le refléter (règle Apple 5.1.1(v)).
+- Test PWA de la caméra et du micro : non fait ; l'entrée « Scanner » est masquée dans la PWA.
