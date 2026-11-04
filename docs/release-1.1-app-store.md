@@ -1,14 +1,16 @@
 # Eigen Pocket 1.1 (build 6) : préparation App Store
 
-Statut au 2026-11-04. Code poussé jusqu'à `bb39281` ; les commits `fa27e5f` (PrivacyInfo) et `2f1d430` (texte du micro)
-sont locaux. Le gate du scan n'a pas été passé (risques acceptés : `docs/scan-step4-gate.md`).
+Statut au 2026-11-04 (fin de journée). Version 1.1, build 6. Les derniers commits (scanner web PWA, privacy, correctif du manifeste)
+sont locaux tant que `git push` n'a pas été fait. Le gate du scan n'a pas été passé (risques acceptés : `docs/scan-step4-gate.md`).
 
 ## 1. Avant d'archiver
 - [x] Version 1.1, build 6 (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`), `ITSAppUsesNonExemptEncryption = false`
 - [x] `npm run cap:sync` et build Release iPhone (sans signature) réussis ; 435 tests, 0 erreur svelte-check
-- [x] `PrivacyInfo.xcprivacy` (les deux copies) : photos/vidéos et autre contenu utilisateur déclarés, liés, sans suivi
+- [x] `PrivacyInfo.xcprivacy` (les deux copies) : audio, position précise, photos/vidéos et autre contenu utilisateur, tous **liés**, sans suivi
+- [x] **Correctif** : ce fichier n'était pas copié dans l'app (absent des ressources du projet) ; vérifié présent dans une archive Release
 - [x] Texte du micro corrigé (Stream = envoi en direct)
-- [ ] Pousser `fa27e5f` et `2f1d430` (`git push`)
+- [x] Archive Release iPhone générée et vérifiée en local (1.1, build 6, manifeste de confidentialité présent) ; elle n'est pas envoyée
+- [ ] `git push`
 - [ ] Xcode : « Any iOS Device (arm64) » → Product → Archive → Distribute App → App Store Connect
 - [ ] Ne pas supprimer l'app sur l'iPhone avant d'installer un build de test (sessions locales non envoyées)
 
@@ -20,12 +22,10 @@ finalité « Fonctionnalités de l'app » uniquement).
 |---|---|---|---|
 | Photos ou vidéos (photos, pages scannées) | Oui | **Oui** | Non |
 | Autre contenu utilisateur (documents, PDF de scan) | Oui | **Oui** | Non |
-| Données audio | Oui | **Oui** (voir ci-dessous) | Non |
-| Position précise | Oui | **Oui** (voir ci-dessous) | Non |
+| Données audio | Oui | **Oui** | Non |
+| Position précise | Oui | **Oui** | Non |
 
-À trancher : dans `PrivacyInfo.xcprivacy`, l'audio et la position sont encore à `Linked = false` (déclaration du build 1.0,
-non modifiée). Si vous répondez « Oui » ici pour l'audio et la position, alignez le fichier au prochain build ; sinon
-gardez « Non » partout pour ces deux-là. Le plus simple et le plus cohérent est « Oui » pour les quatre.
+`PrivacyInfo.xcprivacy` est maintenant aligné sur ces quatre réponses (Liées : Oui).
 Questions tiers (4.3.4 de `docs/privacy-pieces-jointes.md`) : répondre selon l'infrastructure réelle (stockage objet,
 éventuels fournisseurs d'IA) ; aucune pièce n'est analysée automatiquement par l'app.
 
