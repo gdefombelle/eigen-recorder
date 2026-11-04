@@ -11,9 +11,6 @@ import Capacitor
  * VNDocumentCameraViewController and WKWebView share the same GPU context.
  *
  * JS usage:
- *   const { pages } = await DocumentScannerPlugin.scan();
- *   // pages: Array<{ index, width, height, data: base64JPEG }>     (DocScan's original call, kept for the spike)
- *
  *   const r = await DocumentScannerPlugin.scanToPdf({ maxBytes: 25_000_000 });
  *   // Eigen Pocket: the PDF is assembled NATIVELY (ScanPDF.swift) into the temp directory and only paths cross the
  *   // bridge — never base64. r = { scanId, pdfPath, thumbnailPath, pageCount, sizeBytes, recompressed, maxPixels, quality }.
@@ -27,12 +24,10 @@ public class DocumentScannerPlugin: CAPPlugin, CAPBridgedPlugin, VNDocumentCamer
     public let identifier = "DocumentScannerPlugin"
     public let jsName    = "DocumentScannerPlugin"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "scan", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "scanToPdf", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cleanup", returnType: CAPPluginReturnPromise)
     ]
 
-    private let MAX_PX: CGFloat = 2048
     private var pendingCall: CAPPluginCall?
     /// Set by scanToPdf(): the 25 MB budget. nil = the original base64 `scan()` flow.
     private var pendingPdfLimitBytes: Int?
@@ -41,12 +36,6 @@ public class DocumentScannerPlugin: CAPPlugin, CAPBridgedPlugin, VNDocumentCamer
     private var scanWindow: UIWindow?
 
     // MARK: — scan()
-
-    @objc func scan(_ call: CAPPluginCall) {
-        print("[DocumentScannerPlugin] scan() appelé")
-        pendingPdfLimitBytes = nil
-        presentScanner(call)
-    }
 
     /// Scan → PDF written in the temp directory. Only file paths come back.
     @objc func scanToPdf(_ call: CAPPluginCall) {
@@ -174,26 +163,8 @@ public class DocumentScannerPlugin: CAPPlugin, CAPBridgedPlugin, VNDocumentCamer
                 return
             }
 
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self else { return }
-                var pages: [[String: Any]] = []
-
-                for i in 0 ..< scan.pageCount {
-                    let raw = scan.imageOfPage(at: i)
-                    let resized = self.resize(raw)
-                    guard let jpeg = resized.jpegData(compressionQuality: 0.88) else { continue }
-
-                    pages.append([
-                        "index":  i,
-                        "width":  Double(resized.size.width),
-                        "height": Double(resized.size.height),
-                        "data":   jpeg.base64EncodedString()
-                    ])
-                }
-
-                print("[DocumentScannerPlugin] résolution — \(pages.count) page(s)")
-                call.resolve(["pages": pages])
-            }
+            // Not a scanToPdf call (should not happen): never leave a call pending.
+            call.reject("Unexpected scan state", "write_failed")
         }
     }
 
@@ -201,7 +172,6 @@ public class DocumentScannerPlugin: CAPPlugin, CAPBridgedPlugin, VNDocumentCamer
         _ controller: VNDocumentCameraViewController
     ) {
         teardownScanWindow { [weak self] in
-            // code "cancelled" for scanToPdf; the message stays "Cancelled" for the original scan() callers.
             self?.pendingCall?.reject("Cancelled", "cancelled")
             self?.pendingCall = nil
             self?.pendingPdfLimitBytes = nil
@@ -220,19 +190,6 @@ public class DocumentScannerPlugin: CAPPlugin, CAPBridgedPlugin, VNDocumentCamer
     }
 
     // MARK: — Helpers
-
-    private func resize(_ image: UIImage) -> UIImage {
-        let w = image.size.width  * image.scale
-        let h = image.size.height * image.scale
-        let scale = min(1.0, MAX_PX / max(w, h))
-        guard scale < 1.0 else { return image }
-
-        let newSize = CGSize(width: w * scale, height: h * scale)
-        let renderer = UIGraphicsImageRenderer(size: newSize)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: newSize))
-        }
-    }
 
     // MARK: — PDF building (scanToPdf)
 

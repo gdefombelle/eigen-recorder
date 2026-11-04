@@ -1,3 +1,7 @@
+> **Archive.** Le panneau « Scan spike » et la sonde native décrits ci-dessous ont été retirés du build (dernier commit qui les contient : `bb1ff5b`).
+> Seuls restent valables les outils externes : `scripts/spike/analyze-audio.py` (+ `--make-counting`) et la lecture du transcript.
+> Le protocole à suivre aujourd'hui est `docs/scan-step4-gate.md`.
+
 # Spike « Scanner un document » : continuité de l'audio
 
 Étape 1, **bloquante** : le scanner natif (VisionKit, plugin de DocScan porté tel quel, présenté dans une

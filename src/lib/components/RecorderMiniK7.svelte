@@ -32,7 +32,6 @@
   import { captureScan } from '$lib/recorder/attachments/attachmentScan';
   import { getScanEngine } from '$lib/recorder/scan/scanEngine';
   import AttachmentSyncBanner from './AttachmentSyncBanner.svelte';
-  import ScanSpikePanel from './ScanSpikePanel.svelte';
 
   let { localSessionId }: { localSessionId: string } = $props();
 
@@ -506,8 +505,6 @@
         </div>
       {/if}
 
-      <!-- TEMPORARY: audio spike for "Scan a document" (iOS app, enabled in Settings › Diagnostics) -->
-      {#if isRecording || isPaused}<ScanSpikePanel />{/if}
 
       <!-- Safari warning — only on web, not in Capacitor native app -->
       {#if safariLimited && !mimeSupported && !$authStore}

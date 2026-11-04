@@ -5,12 +5,12 @@
 > **Réglages → Diagnostics → « Scanner un document (expérimental) »** est activé (désactivé par défaut,
 > clé `ev_scan_enabled`, `src/lib/recorder/scan/scanSetting.ts`). Elle est de toute façon toujours masquée dans la PWA.
 > Un build livré à d'autres utilisateurs ne montre donc pas le scan tant qu'on n'a pas décidé de le faire.
-> Le panneau de test « Scan spike » reste derrière sa propre case (Diagnostics, désactivée par défaut, iOS uniquement) :
-> il servira au gate.
+> Le panneau de test « Scan spike » et sa sonde native ont été **retirés** du build (la version livrée n'en contient plus) ;
+> ils restent récupérables dans l'historique git (dernier commit qui les contient : `bb1ff5b`) si on veut refaire des mesures.
 
 ## État réel au 2026-11-04 (décision de Gabriel : on boucle sans passer le gate)
 
-**Prouvé** (iPhone, mode Stream, record en cours, scans d'une page, mesures du panneau « Scan spike ») :
+**Prouvé** (iPhone, mode Stream, record en cours, scans d'une page, mesures du panneau « Scan spike », aujourd'hui retiré) :
 - horloge audio de l'app = temps réel (+13 134 ms pour +13 135 ms ; +11 724 ms pour +11 724 ms) ;
 - flux resté `streaming`, frames envoyées au rythme attendu (41 pour ~40 ; 36 pour ~37) ;
 - aucune interruption de la session audio, aucun reset des services média, aucun changement de route pendant le scan ;
@@ -49,12 +49,12 @@ Le « mode avion » du premier essai est classé non applicable (flux déjà à 
 
 ## Préparation
 1. `npm run cap:sync`, puis Cmd+R dans Xcode **sans supprimer l'app** (des sessions locales non envoyées seraient perdues).
-2. Réglages → Diagnostics → cocher « Scan spike » : la sonde reste active et rapporte, avant et après chaque scan,
-   la catégorie, le mode et les options de la session audio (contrôle `audio_session_config_unchanged`). La session
-   audio n'est **pas** modifiée : on regarde d'abord si le son change.
+2. Activer Réglages → Diagnostics → « Scanner un document (expérimental) ». Le panneau et la sonde qui mesuraient
+   l'horloge audio, le flux et la session audio ne sont plus dans le build : pour ces mesures, les restaurer depuis `bb1ff5b`
+   (`git checkout bb1ff5b -- <fichiers spike>`), ou se contenter de l'analyse du fichier audio, du transcript et des logs serveur.
 3. Source sonore continue : `python3 scripts/spike/analyze-audio.py --make-counting counting.aiff`, puis `afplay counting.aiff`
    près du téléphone avant de toucher REC.
-4. Console Xcode (Cmd+Shift+Y) filtrée sur `DocumentScanner` puis `ScanSpikeProbe`.
+4. Console Xcode (Cmd+Shift+Y) filtrée sur `DocumentScanner`.
 
 ## Cas à passer : 3 scans de **vrais** documents (1, 5 et 10 pages) pendant un record de 3 min
 
@@ -67,11 +67,11 @@ Si VisionKit s'arrête avant le nombre de pages voulu, **le noter** (pages réel
 | # | Critère | Comment le mesurer | Seuil |
 |---|---|---|---|
 | 1 | WebSocket sans reconnexion (Stream) | logs serveur : un seul `session_hello` sans `is_reconnect` pour l'appareil | 1 hello |
-| 2 | WebView non rechargée, pas de crash GPU, app stable | panneau (`webview_stable`), console Xcode, l'app reste utilisable (photo, « Tout voir », terminer) | aucun rechargement |
+| 2 | WebView non rechargée, pas de crash GPU, app stable | console Xcode, l'app reste utilisable (photo, « Tout voir », terminer) | aucun rechargement |
 | 3 | Durée de l'audio final | `analyze-audio.py <audio> --real-seconds N --report rapport.json` | durée réelle ± 1 s |
 | 4 | Silences aux instants des scans | même commande (fenêtre du scan ± 1,5 s) | aucun silence > 500 ms |
 | 5 | Transcript continu (Stream) | « Open session content » : le comptage se suit sans numéro manquant ni répété autour de chaque scan | continu |
-| 6 | Session audio | rapport : `audio_session_config_unchanged`, `no_audio_session_interruption` | à rapporter ; une interruption = échec |
+| 6 | Session audio | console Xcode : aucune ligne d'interruption / `route change` pendant le scan (la sonde qui rapportait catégorie/mode/options est retirée) | une interruption = échec |
 
 ## Mesures de la fonction elle-même (à noter, 1 / 5 / 10 pages, dans les deux modes)
 - **Temps par page** : de « Enregistrer » dans VisionKit jusqu'à l'apparition de la carte « Scan mm:ss » dans la bande.
@@ -89,7 +89,7 @@ Si VisionKit s'arrête avant le nombre de pages voulu, **le noter** (pages réel
   afficher « Le scan fait N Mo, même à qualité réduite (limite : 25 Mo). Scannez moins de pages à la fois. » sans rien ajouter.
 
 ## À me renvoyer
-Par mode : le rapport JSON (« Copier le rapport »), la sortie d'`analyze-audio.py`, la durée réelle lue au chrono, ce que
-dit le transcript, les lignes de la console Xcode contenant `interruption`, `route change`, `resign`, `media services`,
+Par mode : la sortie d'`analyze-audio.py`, la durée réelle lue au chrono, ce que
+dit le transcript, les lignes de la console Xcode liées à l'audio,
 les logs serveur (`session_hello`), et les mesures ci-dessus. Je réponds critère par critère, sans conclure sur un
 critère non mesuré.

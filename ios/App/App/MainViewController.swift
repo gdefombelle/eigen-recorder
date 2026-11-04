@@ -8,8 +8,7 @@ class MainViewController: CAPBridgeViewController {
 
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(EigenAudioPlugin())
-        // Document scanner (VisionKit in an isolated UIWindow) + the spike's read-only probe.
+        // Document scanner (VisionKit in an isolated UIWindow).
         bridge?.registerPluginInstance(DocumentScannerPlugin())
-        bridge?.registerPluginInstance(ScanSpikeProbePlugin())
     }
 }
