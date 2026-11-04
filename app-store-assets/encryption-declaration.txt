@@ -1,0 +1,54 @@
+EXPORT COMPLIANCE / ENCRYPTION USE DECLARATION
+
+App:            Eigen Pocket
+Bundle ID:      com.eigenvertex.recorder
+Developer:      Gabriel Jevardat de Fombelle, EigenVertex
+Apple ID:       6816011743
+Date:           24 October 2026
+
+This document describes the use of encryption within the Eigen Pocket iOS
+application, in support of the App Encryption Documentation requirement
+for distribution on the App Store, including in France.
+
+1. SUMMARY OF ENCRYPTION USE
+
+Eigen Pocket uses encryption solely to protect data in transit between the
+application and the EigenVertex backend over the public internet. This is
+implemented exclusively through TLS (HTTPS), using Apple's standard
+networking APIs (URLSession / the iOS Network framework) and the
+encryption built into the iOS operating system. The app also stores
+authentication tokens using the iOS Keychain, whose encryption is
+implemented and managed entirely by the operating system.
+
+2. WHAT THE APP DOES NOT DO
+
+- The app does not implement, embed, or distribute any proprietary or
+  non-standard cryptographic algorithm.
+- The app does not implement any cryptographic primitive itself; it relies
+  exclusively on the standard, publicly available TLS implementation
+  provided by the iOS operating system.
+- The app does not use encryption to protect the confidentiality of
+  locally stored user content (audio recordings and notes are stored
+  unencrypted in the app's local sandboxed storage, protected only by
+  standard iOS file-system and app-sandbox protections).
+- The app contains no encryption functionality beyond what is required to
+  establish a standard HTTPS connection.
+
+3. CLASSIFICATION
+
+The only cryptographic functionality in Eigen Pocket is the use of
+standard, publicly available encryption algorithms (TLS/HTTPS) for
+securing data in transit, as provided by the operating system. This
+qualifies for the "mass market" / standard encryption exemption described
+in Category 5, Part 2 of the EAR (15 CFR 740.17(b)(1)), and corresponds to
+the equivalent exemption for the declaration of encryption-using products
+under French regulations (Article 30 of Law No. 2004-575, implemented via
+Decree No. 2007-663), as the app uses only standard, off-the-shelf
+encryption for communication security and performs no cryptographic
+operations of its own.
+
+4. CONTACT
+
+Gabriel Jevardat de Fombelle
+gabriel.de.fombelle@gmail.com
++33 7 82 38 87 25
