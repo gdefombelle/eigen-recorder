@@ -32,7 +32,7 @@ import { sha256Hex } from './imagePrep';
 // ── Dependencies (injected so the queue is testable without IndexedDB or network) ──
 
 export interface AttachmentStorage {
-  putAttachment(meta: LocalAttachment, blob?: Blob): Promise<void>;
+  putAttachment(meta: LocalAttachment, blob?: Blob, thumbnail?: Blob): Promise<void>;
   getAttachment(id: string): Promise<LocalAttachment | undefined>;
   getAttachmentsBySession(localSessionId: string): Promise<LocalAttachment[]>;
   getAllAttachments(): Promise<LocalAttachment[]>;
@@ -71,6 +71,10 @@ export interface AddAttachmentInput {
   endOffsetMs?:   number | null;
   sha256:         string;
   title:          string;
+  /** Scanner output: provenance, page count and the page-1 preview. */
+  captureSource?: 'scan';
+  pageCount?:     number;
+  thumbnail?:     Blob;
 }
 
 // ── Backoff ────────────────────────────────────────────────────────────────
@@ -201,6 +205,7 @@ export function createAttachmentQueue(deps: QueueDeps) {
           sessionId: remote, file: blob, filename: att.filename, clientAttachmentId: id,
           startOffsetMs: att.start_offset_ms, endOffsetMs: att.end_offset_ms,
           sha256: att.sha256, title: att.title,
+          captureSource: att.capture_source,
         },
         { signal: controller.signal, onProgress: (fraction) => emit({ type: 'progress', id, fraction }) },
       );
@@ -319,15 +324,17 @@ export function createAttachmentQueue(deps: QueueDeps) {
         upload_started:      false,
         pending_delete:      false,
         title_dirty:         false,
+        ...(input.captureSource ? { capture_source: input.captureSource } : {}),
+        ...(input.pageCount != null ? { page_count: input.pageCount } : {}),
       };
-      await storage.putAttachment(att, input.file);
+      await storage.putAttachment(att, input.file, input.thumbnail);
       emit({ type: 'changed', localSessionId: att.local_session_id });
       void kick();
       return att;
     },
 
     /** Multi-selection: one UUID per file, same offset. */
-    async addMany(common: Omit<AddAttachmentInput, 'file' | 'filename' | 'sha256' | 'title'>,
+    async addMany(common: Omit<AddAttachmentInput, 'file' | 'filename' | 'sha256' | 'title' | 'captureSource' | 'pageCount' | 'thumbnail'>,
                   files: Array<Pick<AddAttachmentInput, 'file' | 'filename' | 'sha256' | 'title'>>): Promise<LocalAttachment[]> {
       const out: LocalAttachment[] = [];
       for (const f of files) out.push(await this.add({ ...common, ...f }));

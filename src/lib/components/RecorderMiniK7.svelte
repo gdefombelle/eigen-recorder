@@ -29,6 +29,8 @@
   import { addCaptured, type CapturedFile, type CaptureError } from '$lib/recorder/attachments/attachmentCapture';
   import { takePhoto, choosePhotos, chooseDocuments, PickerPermissionError, type PickSource } from '$lib/recorder/attachments/attachmentPicker';
   import { formatOffset, summarize, type AttachmentView } from '$lib/recorder/attachments/attachmentView';
+  import { captureScan } from '$lib/recorder/attachments/attachmentScan';
+  import { getScanEngine } from '$lib/recorder/scan/scanEngine';
   import AttachmentSyncBanner from './AttachmentSyncBanner.svelte';
   import ScanSpikePanel from './ScanSpikePanel.svelte';
 
@@ -62,6 +64,9 @@
   let attachListOpen  = $state(false);
   let attachOffsetMs  = $state(0);
   let attachNotice    = $state('');
+  // The scanner exists only in the iOS app (null in the PWA, where the entry is hidden). One scan at a time.
+  const scanEngine = getScanEngine();
+  let scanning = $state(false);
   let attachNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let attachSummary = $derived(summarize(attachmentItems));
 
@@ -98,9 +103,28 @@
     attachSheetOpen = true;
   }
 
+  async function handleScan(startOffsetMs: number) {
+    if (!scanEngine || scanning) return;
+    scanning = true;
+    try {
+      const out = await captureScan(
+        { engine: scanEngine, queue: attachmentQueue, getOffsetMs: () => recorderStore.getCaptureOffsetMs() },
+        { localSessionId, startOffsetMs, title: tr.defaultScanTitle(formatOffset(startOffsetMs)) },
+      );
+      if (out.status === 'error') {
+        showAttachNotice(out.reason === 'too_large' ? tr.errScanTooLarge(Math.round((out.sizeBytes ?? 0) / 1_000_000)) : out.reason === 'storage_failed' ? tr.errStorage(tr.kindScan) : tr.errScanFailed);
+      } else if (out.status === 'added' && out.recompressed) {
+        showAttachNotice(tr.scanReduced);
+      }
+    } finally {
+      scanning = false;
+    }
+  }
+
   async function handleAttachPick(source: PickSource) {
     const offsetMs = attachOffsetMs;
     attachSheetOpen = false;
+    if (source === 'scan') { await handleScan(offsetMs); return; }
     let files: CapturedFile[];
     try {
       files = source === 'camera' ? await takePhoto() : source === 'library' ? await choosePhotos() : await chooseDocuments();
@@ -246,6 +270,7 @@
   <!-- ── Attachments: add sheet + full list ── -->
   {#if attachSheetOpen}
     <AddAttachmentSheet
+      scanAvailable={!!scanEngine}
       offsetLabel={formatOffset(attachOffsetMs)}
       onpick={handleAttachPick}
       onclose={() => { attachSheetOpen = false; }}

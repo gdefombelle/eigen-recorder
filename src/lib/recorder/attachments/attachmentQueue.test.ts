@@ -584,3 +584,79 @@ describe('the stored copy is verified before it is sent', () => {
     expect(env.api.uploadAttempts).toBe(0);
   });
 });
+
+
+// ── scans (PDF produced by the in-app scanner) ───────────────────────────────
+
+describe('scanned documents', () => {
+  const PDF_BYTES = '%PDF-1.4 scan';
+  const scan = (over: Record<string, unknown> = {}) => ({
+    localSessionId: 'local-1',
+    file: new Blob([PDF_BYTES], { type: 'application/pdf' }),
+    filename: 'scan-46000.pdf', mimeType: 'application/pdf', kind: 'document' as const,
+    startOffsetMs: 46_000, endOffsetMs: 71_000, sha256: '', title: 'Scan 00:46',
+    captureSource: 'scan' as const, pageCount: 5, thumbnail: new Blob(['jpg'], { type: 'image/jpeg' }),
+    ...over,
+  });
+  async function sha(b: Blob) { const d = await crypto.subtle.digest('SHA-256', await b.arrayBuffer()); return Array.from(new Uint8Array(d), (x) => x.toString(16).padStart(2, '0')).join(''); }
+
+  it('persists provenance, page count and the thumbnail with the PDF', async () => {
+    const puts: Array<{ blob?: Blob; thumbnail?: Blob }> = [];
+    const inner = env.storage.putAttachment.bind(env.storage);
+    env.storage.putAttachment = async (m, blob, thumbnail) => { puts.push({ blob, thumbnail }); return inner(m, blob, thumbnail); };
+    env.online.v = false;
+    const q = env.newQueue();
+    const input = scan(); input.sha256 = await sha(input.file);
+    const att = await q.add(input);
+    expect(att).toMatchObject({ kind: 'document', mime_type: 'application/pdf', capture_source: 'scan', page_count: 5, start_offset_ms: 46_000, end_offset_ms: 71_000 });
+    expect(puts[0].thumbnail?.type).toBe('image/jpeg');
+    expect((await env.storage.getAttachment(att.local_attachment_id))?.capture_source).toBe('scan');
+  });
+
+  it('an ordinary photo or document carries no scan fields (older records and other types are unchanged)', async () => {
+    const q = env.newQueue();
+    const att = await q.add(photo());
+    expect(att).not.toHaveProperty('capture_source');
+    expect(att).not.toHaveProperty('page_count');
+  });
+
+  it('offline: queued, then sent once on reconnection with capture_source=scan and both offsets', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const inner = env.api.upload.bind(env.api);
+    env.api.upload = async (input, opts) => { calls.push({ ...input }); return inner(input, opts); };
+    env.sessions.set('local-1', 'srv-9');
+    env.online.v = false;
+    const q = env.newQueue();
+    const input = scan(); input.sha256 = await sha(input.file);
+    const att = await q.add(input);
+    await q.whenIdle();
+    expect(calls).toHaveLength(0);                                             // nothing leaves while offline
+    expect((await env.storage.getAttachment(att.local_attachment_id))?.state).toBe('queued');
+
+    env.online.v = true;
+    await q.kick();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ sessionId: 'srv-9', captureSource: 'scan', startOffsetMs: 46_000, endOffsetMs: 71_000, filename: 'scan-46000.pdf', clientAttachmentId: att.local_attachment_id });
+    expect((await env.storage.getAttachment(att.local_attachment_id))?.state).toBe('uploaded');
+
+    await q.kick();                                                            // idempotent: no second upload
+    expect(calls).toHaveLength(1);
+  });
+
+  it('a retry after a failure resends the SAME UUID with capture_source still set', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const inner = env.api.upload.bind(env.api);
+    env.api.upload = async (input, opts) => { calls.push({ ...input }); return inner(input, opts); };
+    env.sessions.set('local-1', 'srv-9');
+    env.api.failNext(503);
+    const q = env.newQueue();
+    const input = scan(); input.sha256 = await sha(input.file);
+    const att = await q.add(input);
+    await q.whenIdle();
+    env.clock.t += 600_000;
+    await q.kick();
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(calls.map((c) => c.clientAttachmentId))).toEqual(new Set([att.local_attachment_id]));
+    expect(calls.every((c) => c.captureSource === 'scan')).toBe(true);
+  });
+});

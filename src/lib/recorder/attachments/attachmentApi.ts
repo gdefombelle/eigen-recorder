@@ -48,15 +48,26 @@ class HttpAttachmentApi implements AttachmentApiContract {
     // Text fields FIRST, the file LAST. If the file part cannot be read when the request is serialised (a
     // file-backed Blob whose source vanished), a body cut there still carries every field — the server then
     // says "empty"/"sha256 mismatch" instead of the misleading "Field required" for fields we did send.
-    const form = new FormData();
-    form.append('client_attachment_id', input.clientAttachmentId);
-    form.append('start_offset_ms', String(Math.max(0, Math.round(input.startOffsetMs))));
-    if (input.endOffsetMs != null) form.append('end_offset_ms', String(Math.round(input.endOffsetMs)));
-    form.append('sha256', input.sha256);
-    form.append('title', input.title);
-    form.append('file', input.file, input.filename);
-    const sent = `file "${input.filename}" type=${input.file.type || '(empty)'} size=${input.file.size}B; fields=${[...new Set([...form.keys()])].filter((k) => k !== 'file').join(',')}`;
-    return uploadMultipart<AttachmentRecord>(base(input.sessionId), form, { ...opts, sent });
+    const send = (withCaptureSource: boolean) => {
+      const form = new FormData();
+      form.append('client_attachment_id', input.clientAttachmentId);
+      form.append('start_offset_ms', String(Math.max(0, Math.round(input.startOffsetMs))));
+      if (input.endOffsetMs != null) form.append('end_offset_ms', String(Math.round(input.endOffsetMs)));
+      form.append('sha256', input.sha256);
+      form.append('title', input.title);
+      if (withCaptureSource && input.captureSource) form.append('capture_source', input.captureSource);
+      form.append('file', input.file, input.filename);
+      const sent = `file "${input.filename}" type=${input.file.type || '(empty)'} size=${input.file.size}B; fields=${[...new Set([...form.keys()])].filter((k) => k !== 'file').join(',')}`;
+      return uploadMultipart<AttachmentRecord>(base(input.sessionId), form, { ...opts, sent });
+    };
+    try {
+      return await send(true);
+    } catch (e) {
+      // `capture_source` is optional provenance. A server that validates it differently must not lose the scan:
+      // if the 422 names that field, send the same file again without it (same UUID — the server dedups).
+      if (input.captureSource && e instanceof ApiError && e.status === 422 && /capture_source/i.test(e.message)) return send(false);
+      throw e;
+    }
   }
 
   async list(sessionId: string): Promise<AttachmentRecord[]> {

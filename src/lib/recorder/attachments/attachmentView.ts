@@ -21,6 +21,9 @@ export interface AttachmentView {
   localSessionId:  string;
   title:           string;
   kind:            AttachmentKind;
+  /** A document produced by the in-app scanner: shown as a "Scan" card with its page count. */
+  isScan:          boolean;
+  pageCount:       number | null;
   sizeBytes:       number;
   offsetMs:        number;
   offsetLabel:     string;       // mm:ss
@@ -93,6 +96,8 @@ export function toAttachmentView(att: LocalAttachment, ctx: ViewContext): Attach
     localSessionId: att.local_session_id,
     title: att.title,
     kind: att.kind,
+    isScan: att.capture_source === 'scan',
+    pageCount: att.capture_source === 'scan' ? att.page_count ?? null : null,
     sizeBytes: att.size_bytes,
     offsetMs: att.start_offset_ms,
     offsetLabel: formatOffset(att.start_offset_ms),

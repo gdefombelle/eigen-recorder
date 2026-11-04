@@ -41,9 +41,14 @@ export interface LocalAttachment {
   pending_delete:       boolean;
   /** Title edited locally after the server stored it; PATCH still owed. */
   title_dirty:          boolean;
+  /** Set for documents produced by the in-app scanner (a PDF of N pages). Absent on every older record. */
+  capture_source?:      'scan';
+  page_count?:          number;
 }
 
 export interface LocalAttachmentData {
   local_attachment_id: string;
   blob:                Blob;
+  /** Page-1 preview of a scan (small JPEG) — the strip/list show it without decoding the PDF. */
+  thumbnail?:          Blob;
 }

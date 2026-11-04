@@ -113,3 +113,15 @@ describe('formatDiagnostic', () => {
   it('nothing failed → null', () => expect(formatDiagnostic(null)).toBeNull());
   it('very long messages are truncated', () => expect(formatDiagnostic({ kind: 'permanent', status: 500, message: 'x'.repeat(500) })!.length).toBeLessThan(260));
 });
+
+describe('toAttachmentView — scans', () => {
+  it('a scan exposes isScan and its page count', () => {
+    const v = toAttachmentView(att({ kind: 'document', capture_source: 'scan', page_count: 5 }), ctx);
+    expect(v).toMatchObject({ isScan: true, pageCount: 5, kind: 'document' });
+  });
+  it('a scan without a recorded page count has null pages; ordinary documents and photos are not scans', () => {
+    expect(toAttachmentView(att({ kind: 'document', capture_source: 'scan' }), ctx)).toMatchObject({ isScan: true, pageCount: null });
+    expect(toAttachmentView(att({ kind: 'document', page_count: 3 }), ctx)).toMatchObject({ isScan: false, pageCount: null });
+    expect(toAttachmentView(att(), ctx)).toMatchObject({ isScan: false, pageCount: null });
+  });
+});

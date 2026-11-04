@@ -231,11 +231,11 @@ export const offlineStorage = {
   // ── Record attachments ────────────────────────────────────
 
   /** Writes metadata, and the blob too when given (creation only — status updates omit it). */
-  async putAttachment(meta: LocalAttachment, blob?: Blob): Promise<void> {
+  async putAttachment(meta: LocalAttachment, blob?: Blob, thumbnail?: Blob): Promise<void> {
     await withDb(async (db) => {
       const tx = db.transaction(['attachments_meta', 'attachments_data'], 'readwrite');
       await tx.objectStore('attachments_meta').put(meta);
-      if (blob) await tx.objectStore('attachments_data').put({ local_attachment_id: meta.local_attachment_id, blob });
+      if (blob) await tx.objectStore('attachments_data').put({ local_attachment_id: meta.local_attachment_id, blob, ...(thumbnail ? { thumbnail } : {}) });
       await tx.done;
     });
   },
@@ -257,6 +257,11 @@ export const offlineStorage = {
   async getAttachmentBlob(id: string): Promise<Blob | undefined> {
     const data = await withDb((db) => db.get('attachments_data', id));
     return data?.blob;
+  },
+
+  async getAttachmentThumbnail(id: string): Promise<Blob | undefined> {
+    const data = await withDb((db) => db.get('attachments_data', id));
+    return data?.thumbnail;
   },
 
   async deleteAttachment(id: string): Promise<void> {

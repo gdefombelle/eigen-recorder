@@ -36,3 +36,23 @@ describe('record end-screen warning — FR/EN', () => {
     expect(t().recorder.finalizeIssue('error', 'HTTP 500', 1)).toBe('Error · HTTP 500');
   });
 });
+
+describe('scan strings — agreed wording, FR/EN', () => {
+  it('sheet entry, subtitle, default title and page badge', () => {
+    setLang('fr');
+    expect(t().attachments.scan).toBe('Scanner un document');
+    expect(t().attachments.scanHint).toBe('Détection des bords, PDF multipages');
+    expect(t().attachments.defaultScanTitle('00:46')).toBe('Scan 00:46');
+    expect(t().attachments.pagesShort(5)).toBe('5 p.');
+    expect(t().attachments.scanCardLabel('00:46', 3)).toBe('Scan 00:46 · 3 p.');
+    expect(t().attachments.scanCardLabel('00:46', null)).toBe('Scan 00:46');
+    setLang('en');
+    expect(t().attachments.scan).toBe('Scan a document');
+    expect(t().attachments.defaultScanTitle('00:46')).toBe('Scan 00:46');
+  });
+
+  it('the too-large message states the size and the 25 MB limit in both languages', () => {
+    setLang('fr'); expect(t().attachments.errScanTooLarge(31)).toMatch(/31 Mo.*25 Mo/);
+    setLang('en'); expect(t().attachments.errScanTooLarge(31)).toMatch(/31 MB.*25 MB/);
+  });
+});

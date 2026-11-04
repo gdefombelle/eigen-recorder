@@ -22,7 +22,8 @@ export interface AttachmentRecord {
   created_at:           string;
   // GET list/detail also merge the legacy shape; present there, absent on POST/PATCH/retry.
   title?:               string | null;
-  kind?:                AttachmentKind;
+  /** The server labels scanned documents `scan` (capture_source=scan); photos/documents otherwise. */
+  kind?:                AttachmentKind | 'scan';
   stored_file?:         { filename?: string | null; content_type?: string | null; size_bytes?: number | null } | null;
 }
 
@@ -38,6 +39,8 @@ export interface UploadAttachmentInput {
   /** SHA-256 hex of the exact bytes sent. */
   sha256:             string;
   title:              string;
+  /** Provenance: sent as the optional multipart field `capture_source`. Servers that predate it ignore the field. */
+  captureSource?:     'scan';
 }
 
 export interface UploadCallOptions {

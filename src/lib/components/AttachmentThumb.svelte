@@ -5,15 +5,16 @@
   import { offlineStorage } from '$lib/recorder/offlineStorage';
   import type { AttachmentKind } from '$lib/recorder/attachments/types';
 
-  let { id, kind, size = 72 }: { id: string; kind: AttachmentKind; size?: number } = $props();
+  let { id, kind, scan = false, size = 72 }: { id: string; kind: AttachmentKind; scan?: boolean; size?: number } = $props();
 
   let url = $state<string | null>(null);
 
   onMount(() => {
     let revoked = false;
     let objectUrl: string | null = null;
-    if (kind === 'photo') {
-      offlineStorage.getAttachmentBlob(id).then((blob) => {
+    if (kind === 'photo' || scan) {
+      // A scan shows its stored page-1 preview (small JPEG) — the PDF itself is never decoded here.
+      (scan ? offlineStorage.getAttachmentThumbnail(id) : offlineStorage.getAttachmentBlob(id)).then((blob) => {
         if (!blob || revoked) return;
         objectUrl = URL.createObjectURL(blob);
         url = objectUrl;

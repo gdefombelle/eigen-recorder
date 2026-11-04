@@ -4,8 +4,10 @@
   import { t, langStore } from '$lib/i18n/index';
 
   import type { PickSource } from '$lib/recorder/attachments/attachmentPicker';
-  let { offsetLabel, onpick, onclose }: {
+  let { offsetLabel, scanAvailable = false, onpick, onclose }: {
     offsetLabel: string;
+    /** The scanner is offered only where an engine exists (iOS app); never in the PWA. */
+    scanAvailable?: boolean;
     onpick: (source: PickSource) => void;
     onclose: () => void;
   } = $props();
@@ -46,6 +48,16 @@
       <span class="chev" aria-hidden="true">›</span>
     </button>
 
+    {#if scanAvailable}
+      <button type="button" class="opt" data-testid="opt-scan" onclick={() => onpick('scan')}>
+        <span class="ico scan" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 9h8M8 12h8M8 15h5"/></svg>
+        </span>
+        <span class="txt"><strong>{tr.attachments.scan}</strong><small>{tr.attachments.scanHint}</small></span>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
+    {/if}
+
     <button type="button" class="cancel" onclick={onclose}>{tr.common.cancel}</button>
   </div>
 </div>
@@ -84,6 +96,7 @@
   .ico.cam { background: var(--ev-blue); color: #0a0a0a; }
   .ico.lib { background: rgba(90,168,232,0.16); color: var(--ev-blue); }
   .ico.doc { background: rgba(245,158,11,0.12); color: var(--ev-orange); }
+  .ico.scan { background: rgba(16,185,129,0.14); color: var(--ev-success); }
   .txt { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
   .txt strong { font-size: 1.02rem; font-weight: 700; }
   .txt small { font-size: 0.82rem; color: var(--ev-text-dim); }

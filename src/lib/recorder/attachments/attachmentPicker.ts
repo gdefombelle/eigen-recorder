@@ -11,7 +11,7 @@ import { isNative } from '$lib/platform';
 import type { CapturedFile } from './attachmentCapture';
 import { DOCUMENT_EXTENSIONS } from './attachmentCapture';
 
-export type PickSource = 'camera' | 'library' | 'files';
+export type PickSource = 'camera' | 'library' | 'files' | 'scan';
 
 export class PickerPermissionError extends Error {
   constructor() { super('Camera permission denied'); this.name = 'PickerPermissionError'; }

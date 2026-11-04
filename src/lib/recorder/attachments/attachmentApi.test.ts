@@ -127,6 +127,59 @@ describe('httpAttachmentApi.upload — multipart construction, photo vs document
   });
 });
 
+describe('httpAttachmentApi.upload — scans (capture_source)', () => {
+  const sendScan = (over: Partial<UploadAttachmentInput> = {}) =>
+    httpAttachmentApi.upload(input({ file: new Blob(['%PDF-1.4'], { type: 'application/pdf' }), filename: 'scan-46000.pdf', endOffsetMs: 71_000, captureSource: 'scan', ...over }));
+  const formAt = (n: number) => mockUpload.mock.calls[n][1] as FormData;
+
+  it('sends capture_source=scan before the file, and nothing for an ordinary attachment', async () => {
+    mockUpload.mockResolvedValue({});
+    await sendScan();
+    expect([...formAt(0).keys()]).toEqual(['client_attachment_id', 'start_offset_ms', 'end_offset_ms', 'sha256', 'title', 'capture_source', 'file']);
+    expect(formAt(0).get('capture_source')).toBe('scan');
+    expect(formAt(0).get('end_offset_ms')).toBe('71000');
+    await httpAttachmentApi.upload(input());
+    expect(formAt(1).has('capture_source')).toBe(false);
+  });
+
+  it('a server that ignores the field is fine: one request, same result', async () => {
+    mockUpload.mockResolvedValueOnce({ attachment_id: 'srv-1', kind: 'document' });
+    const rec = await sendScan();
+    expect(mockUpload).toHaveBeenCalledTimes(1);
+    expect(rec.attachment_id).toBe('srv-1');
+  });
+
+  it('a 422 that names capture_source resends the SAME file once, without that field', async () => {
+    mockUpload
+      .mockRejectedValueOnce(new ApiError(422, 'capture_source: Input should be camera, library or file'))
+      .mockResolvedValueOnce({ attachment_id: 'srv-2' });
+    const rec = await sendScan();
+    expect(mockUpload).toHaveBeenCalledTimes(2);
+    expect(formAt(0).has('capture_source')).toBe(true);
+    expect(formAt(1).has('capture_source')).toBe(false);
+    expect(formAt(1).get('client_attachment_id')).toBe(CLIENT_ID);
+    expect((formAt(1).get('file') as File).name).toBe('scan-46000.pdf');
+    expect(rec.attachment_id).toBe('srv-2');
+  });
+
+  it('other errors are not retried here (a 422 on another field, a 500, a network failure)', async () => {
+    for (const err of [new ApiError(422, 'sha256: mismatch'), new ApiError(500, 'boom', true), new ApiError(0, 'network', true)]) {
+      mockUpload.mockReset();
+      mockUpload.mockRejectedValueOnce(err);
+      await expect(sendScan()).rejects.toBe(err);
+      expect(mockUpload).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('an ordinary attachment never gets the fallback, even on a 422 naming capture_source', async () => {
+    mockUpload.mockReset();
+    const err = new ApiError(422, 'capture_source: weird');
+    mockUpload.mockRejectedValueOnce(err);
+    await expect(httpAttachmentApi.upload(input())).rejects.toBe(err);
+    expect(mockUpload).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('httpAttachmentApi.upload — request summary for diagnostics', () => {
   it('describes the file (name, MIME — "(empty)" when the iOS picker gives none — and size) and the fields sent', async () => {
     mockUpload.mockResolvedValueOnce({});

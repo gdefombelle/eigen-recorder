@@ -53,13 +53,13 @@
       case 'abandoned':         return tr.statusAbandoned;
     }
   });
-  let kindLabel = $derived(item.kind === 'photo' ? tr.kindPhoto : tr.kindDocument);
+  let kindLabel = $derived(item.isScan ? `${tr.kindScan}${item.pageCount ? ` · ${tr.pagesShort(item.pageCount)}` : ''}` : item.kind === 'photo' ? tr.kindPhoto : tr.kindDocument);
 </script>
 
 <li class="row s-{item.status}">
   <div class="main">
     <div class="thumb-wrap">
-      <AttachmentThumb id={item.id} kind={item.kind} size={64} />
+      <AttachmentThumb id={item.id} kind={item.kind} scan={item.isScan} size={64} />
       <span class="time">{item.offsetLabel}</span>
     </div>
 

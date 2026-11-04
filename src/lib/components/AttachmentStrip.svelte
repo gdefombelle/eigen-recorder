@@ -18,8 +18,9 @@
     <div class="rail">
       {#each items as it (it.id)}
         <button type="button" class="card" class:fail={it.status === 'failed' || it.status === 'processing_failed' || it.status === 'retrying'} class:wait={it.status === 'offline' || it.status === 'queued' || it.status === 'waiting_share'} onclick={onseeall}>
-          <AttachmentThumb id={it.id} kind={it.kind} size={72} />
-          <span class="time">{it.offsetLabel}</span>
+          <AttachmentThumb id={it.id} kind={it.kind} scan={it.isScan} size={72} />
+          <span class="time" class:scan={it.isScan}>{it.isScan ? `${tr.kindScan} ${it.offsetLabel}` : it.offsetLabel}</span>
+          {#if it.isScan && it.pageCount}<span class="pages">{tr.pagesShort(it.pageCount)}</span>{/if}
           <span class="badge b-{it.status}" aria-hidden="true">
             {#if it.status === 'ready'}
               <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5l2.5 2.5 4.5-5.5"/></svg>
@@ -61,6 +62,14 @@
     position: absolute; left: 5px; bottom: 5px;
     font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700;
     background: rgba(0,0,0,0.78); color: #fff; padding: 2px 6px; border-radius: 6px;
+    white-space: nowrap;
+  }
+  /* "Scan 00:46" must fit a 72 px card on one line without hiding the page preview. */
+  .time.scan { left: 4px; bottom: 4px; font-size: 0.6rem; padding: 2px 4px; letter-spacing: -0.01em; }
+  .pages {
+    position: absolute; top: 5px; left: 5px;
+    font-family: var(--font-mono); font-size: 0.6rem; font-weight: 800; white-space: nowrap;
+    background: rgba(0,0,0,0.78); color: var(--ev-success); padding: 2px 4px; border-radius: 6px;
   }
   .badge {
     position: absolute; top: 5px; right: 5px; width: 20px; height: 20px; border-radius: 50%;

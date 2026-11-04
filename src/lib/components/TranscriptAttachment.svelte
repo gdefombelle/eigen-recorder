@@ -13,7 +13,8 @@
 
   let tr = $derived.by(() => { $langStore; return t().attachments; });
   let isPhoto = $derived(record.kind === 'photo' || !!record.stored_file?.content_type?.startsWith('image/'));
-  let title = $derived(record.title || (isPhoto ? tr.kindPhoto : tr.kindDocument));
+  let isScan = $derived(record.kind === 'scan');
+  let title = $derived(record.title || (isScan ? tr.kindScan : isPhoto ? tr.kindPhoto : tr.kindDocument));
 
   let thumbUrl = $state<string | null>(null);
   let viewerUrl = $state<string | null>(null);
@@ -96,7 +97,7 @@
       </div>
     {/if}
     <div class="meta">
-      <span class="kind">{isPhoto ? tr.inlinePhoto : tr.inlineDocument}</span>
+      <span class="kind">{isScan ? tr.inlineScan : isPhoto ? tr.inlinePhoto : tr.inlineDocument}</span>
       <span class="name">{title}</span>
       {#if error}<span class="err" role="alert">{error}</span>{/if}
     </div>
