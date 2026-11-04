@@ -58,7 +58,7 @@
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeAudioData</string>
             <key>NSPrivacyCollectedDataTypeLinked</key>
-            <false/>
+            <true/>
             <key>NSPrivacyCollectedDataTypeTracking</key>
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
@@ -67,12 +67,12 @@
             </array>
         </dict>
 
-        <!-- Precise location — tagged on sessions at creation time only -->
+        <!-- Precise location — tagged on sessions at creation time only; stored with the session in the user's EigenVertex account -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypePreciseLocation</string>
             <key>NSPrivacyCollectedDataTypeLinked</key>
-            <false/>
+            <true/>
             <key>NSPrivacyCollectedDataTypeTracking</key>
             <false/>
             <key>NSPrivacyCollectedDataTypePurposes</key>
