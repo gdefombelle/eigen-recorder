@@ -46,7 +46,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Eigen Pocket uses your location to tag where meetings take place. Only used when you create a session.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Eigen Pocket uses the microphone to capture meeting audio. Recordings are stored locally on your device and never sent without your explicit action.</string>
+	<string>Eigen Pocket uses the microphone to capture meeting audio. Recordings are saved on your device. In Stream mode the audio is also sent live to your EigenVertex account; in Local mode it is only sent when you share it.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Eigen Pocket converts your speech to text when you dictate a message. Recognition runs on your device whenever your language supports it.</string>
 	<key>UIApplicationSceneManifest</key>
