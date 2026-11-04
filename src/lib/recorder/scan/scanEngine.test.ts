@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createNativeScanEngine, ScanTooLargeError, ScanFailedError, type NativeScannerPlugin, type NativeScanResponse } from './scanEngine';
+import { createNativeScanEngine, getScanEngine, SCAN_ENTRY_ENABLED, ScanTooLargeError, ScanFailedError, type NativeScannerPlugin, type NativeScanResponse } from './scanEngine';
 import { sha256Hex } from '../attachments/imagePrep';
 
 const PDF = new TextEncoder().encode('%PDF-1.4\n…binary…\n%%EOF\n');
@@ -121,5 +121,20 @@ describe('native scan engine', () => {
     const h = harness();
     h.plugin.addListener = async () => { throw new Error('no listener'); };
     expect(await h.engine.scan({ onCaptured: () => {} })).not.toBeNull();
+  });
+});
+
+describe('getScanEngine — where the entry exists', () => {
+  it('no engine on the web / PWA (the sheet hides the entry)', () => {
+    expect(getScanEngine(true, () => false)).toBeNull();
+  });
+  it('an engine in the native iOS app', () => {
+    expect(getScanEngine(true, () => true)?.id).toBe('native-ios');
+  });
+  it('the kill switch hides it even in the native app', () => {
+    expect(getScanEngine(false, () => true)).toBeNull();
+  });
+  it('ships enabled by default', () => {
+    expect(SCAN_ENTRY_ENABLED).toBe(true);
   });
 });

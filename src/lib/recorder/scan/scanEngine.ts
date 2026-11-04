@@ -121,9 +121,15 @@ export function createNativeScanEngine(deps: NativeScanDeps): ScanEngine {
   };
 }
 
-/** The engine for this platform, or null when scanning is not offered (web / PWA, Android). */
-export function getScanEngine(): ScanEngine | null {
-  if (!isNative()) return null;
+/**
+ * Kill switch. Step 4 (device gate: 1/5/10 pages in Stream and Local, audio analysis, transcript) decides whether the
+ * scanner ships. If a criterion fails, set this to false: the sheet entry disappears, nothing else changes.
+ */
+export const SCAN_ENTRY_ENABLED = true;
+
+/** The engine for this platform, or null when scanning is not offered (web / PWA, Android, or switched off). */
+export function getScanEngine(enabled: boolean = SCAN_ENTRY_ENABLED, native: () => boolean = isNative): ScanEngine | null {
+  if (!enabled || !native()) return null;
   return nativeEngine();
 }
 

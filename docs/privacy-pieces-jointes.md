@@ -168,3 +168,24 @@ est ajoutée plus tard (ingestion en corpus), refaire cette vérification.
 4. Mettre à jour App Privacy dans App Store Connect (3.2, 3.3).
 5. Mettre à jour la politique de confidentialité (4.2).
 6. Archiver, soumettre, ajouter les notes de review (4.3).
+
+---
+
+## 6. Ajout : « Scanner un document » (quatrième type de pièce jointe)
+
+Statut : **proposition**, rien d'appliqué. Les conclusions des sections 2 à 5 s'appliquent telles quelles.
+
+| Fait | Source |
+|---|---|
+| Le scan utilise le scanner système (VisionKit) : détection des bords, correction de perspective et choix des pages se font **sur l'appareil** | `DocumentScannerPlugin.swift` |
+| L'assemblage du PDF et la vignette de la page 1 sont produits **sur l'appareil** (JPEG 2000 px, qualité 0,8, recompression locale si le fichier dépasse 25 Mo). Aucun service tiers, aucun envoi pendant le scan | `ScanPDF.swift` |
+| Les fichiers intermédiaires sont écrits dans le dossier temporaire de l'app, puis **supprimés** dès que l'app les a lus ; un balayage supprime ceux qui auraient survécu à un plantage (plus d'une heure) | `ScanTemp` dans `ScanPDF.swift`, `cleanup` |
+| **Rien ne quitte le téléphone avant l'envoi de la pièce jointe** : le PDF suit ensuite exactement le chemin des autres pièces (copie locale dans IndexedDB, puis envoi au compte EigenVertex dès que la session existe côté serveur et que le réseau est là) | `attachmentQueue.ts` |
+| Champ ajouté à l'envoi : `capture_source=scan` (provenance, sans donnée personnelle) | `attachmentApi.ts` |
+| Aucune nouvelle permission : le scanner réutilise la permission caméra déjà déclarée (`NSCameraUsageDescription`) | `Info.plist` |
+| Aucune lecture automatique (OCR / IA) côté Pocket : le fichier est seulement stocké, comme une pièce `session` | choix produit du 2026-11-04 |
+
+Conséquences pour les déclarations :
+- **Pas de nouveau type de donnée** : un scan est un document (PDF) donc « Autre contenu utilisateur » ; il contient des images de pages, donc « Photos ou vidéos » est déjà couvert par 2.1 / 3.2. Les mêmes réponses (Lié à l'utilisateur, pas de suivi, finalité Fonctionnalités de l'app) s'appliquent.
+- **Notes pour l'équipe de review (4.3)** : ajouter que le scanner de documents n'est utilisé qu'à l'initiative de l'utilisateur pendant un enregistrement, et que l'enregistrement audio continue pendant le scan (à ne l'écrire qu'une fois le gate de l'étape 4 passé).
+- **Suppression réelle (4.1)** : la limite signalée s'applique aussi aux scans (suppression logique côté serveur, le fichier reste dans le stockage objet).
