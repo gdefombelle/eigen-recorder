@@ -53,4 +53,4 @@ Questions tiers (4.3.4 de `docs/privacy-pieces-jointes.md`) : répondre selon l'
 - Politique de confidentialité : ajouter photos, documents et scans (nature, finalité, durée de conservation, sous-traitants).
 - Suppression : supprimer une pièce est une suppression logique côté serveur (le fichier reste dans le stockage) ; la
   formulation de la politique et la suppression de compte doivent le refléter (règle Apple 5.1.1(v)).
-- Test PWA de la caméra et du micro : non fait ; l'entrée « Scanner » est masquée dans la PWA.
+- Scanner web (PWA) : intégré (composant de DocScan), vérifié sur Chrome desktop avec une caméra factice ; **non testé sur un iPhone en PWA** (micro du record pendant que la caméra tourne, OpenCV.js téléchargé au premier scan). Voir `docs/scan-step4-gate.md`.

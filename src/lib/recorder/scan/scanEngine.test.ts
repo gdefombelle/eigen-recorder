@@ -124,11 +124,18 @@ describe('native scan engine', () => {
   });
 });
 
-describe('getScanEngine — where the entry exists', () => {
-  it('no engine on the web / PWA (the sheet hides the entry)', () => {
-    expect(getScanEngine(() => false)).toBeNull();
+describe('getScanEngine — which scanner, where', () => {
+  it('the native iOS scanner in the app, whatever the browser could do', () => {
+    expect(getScanEngine(() => true, () => true)?.id).toBe('native-ios');
+    expect(getScanEngine(() => true, () => false)?.id).toBe('native-ios');
   });
-  it('an engine in the native iOS app, with no setting to switch on', () => {
-    expect(getScanEngine(() => true)?.id).toBe('native-ios');
+  it('the DocScan web scanner in a browser that has camera, workers and canvas', () => {
+    expect(getScanEngine(() => false, () => true)?.id).toBe('web');
+  });
+  it('no scanner (the sheet hides the entry) where the browser cannot do it', () => {
+    expect(getScanEngine(() => false, () => false)).toBeNull();
+  });
+  it('with no argument in Node (no camera API) there is none', () => {
+    expect(getScanEngine(() => false)).toBeNull();
   });
 });

@@ -2,8 +2,8 @@
 //
 //   native iOS : DocumentScannerPlugin.scanToPdf — VisionKit in an isolated UIWindow, the PDF is assembled natively
 //                into the temp directory, only file paths cross the bridge.
-//   web / PWA  : no engine in V1 (getScanEngine() returns null and the sheet hides the entry). Opening the camera
-//                from a PWA can suspend the page and cut the microphone; that has not been verified, so it is not offered.
+//   web / PWA  : the DocScan web scanner (viewfinder with live edge detection, perspective correction, enhancement,
+//                manual corners) assembled into a PDF in the browser — see ./web/webScanEngine.ts.
 //
 // Everything platform-specific is injected, so the flow (read, verify, ALWAYS clean up) is tested without a device.
 
@@ -29,7 +29,7 @@ export interface ScanOptions {
 }
 
 export interface ScanEngine {
-  readonly id: 'native-ios';
+  readonly id: 'native-ios' | 'web';
   /** Resolves to null when the user cancels. Rejects with ScanTooLargeError / ScanFailedError. */
   scan(opts?: ScanOptions): Promise<ScanResult | null>;
 }
@@ -121,9 +121,35 @@ export function createNativeScanEngine(deps: NativeScanDeps): ScanEngine {
   };
 }
 
-/** The engine for this platform, or null when scanning is not offered (web / PWA, Android). Always on in the iOS app. */
-export function getScanEngine(native: () => boolean = isNative): ScanEngine | null {
-  return native() ? nativeEngine() : null;
+/**
+ * The engine for this platform: VisionKit in the iOS app, the DocScan web scanner in a browser / PWA that has a camera
+ * stream, workers and canvas, or null (the sheet then hides the entry).
+ */
+export function getScanEngine(native: () => boolean = isNative, webSupported: () => boolean | Promise<boolean> = defaultWebSupported): ScanEngine | null {
+  if (native()) return nativeEngine();
+  const ok = webSupported();
+  return ok === true ? webEngine() : null;
+}
+
+function defaultWebSupported(): boolean {
+  return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
+    && typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined';
+}
+
+let _web: ScanEngine | null = null;
+function webEngine(): ScanEngine {
+  if (_web) return _web;
+  _web = {
+    id: 'web',
+    async scan(opts) {
+      // Loaded only in a browser, only when a scan starts.
+      const [{ createWebScanEngine }, { getWebScannerHost }, { reencodePage }] = await Promise.all([
+        import('./web/webScanEngine.js'), import('./web/webScannerHost.js'), import('./web/imageUtils.js'),
+      ]);
+      return createWebScanEngine({ getHost: getWebScannerHost, reencode: reencodePage }).scan(opts);
+    },
+  };
+  return _web;
 }
 
 let _native: ScanEngine | null = null;

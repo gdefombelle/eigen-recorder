@@ -31,6 +31,9 @@
   import { formatOffset, summarize, type AttachmentView } from '$lib/recorder/attachments/attachmentView';
   import { captureScan } from '$lib/recorder/attachments/attachmentScan';
   import { getScanEngine } from '$lib/recorder/scan/scanEngine';
+  import { streamGapSuspected } from '$lib/recorder/scan/audioHealth';
+  import WebScanner from './WebScanner.svelte';
+  import { get } from 'svelte/store';
   import AttachmentSyncBanner from './AttachmentSyncBanner.svelte';
 
   let { localSessionId }: { localSessionId: string } = $props();
@@ -105,6 +108,8 @@
   async function handleScan(startOffsetMs: number) {
     if (!scanEngine || scanning) return;
     scanning = true;
+    const snap = () => { const s = get(recorderStore); return { state: s.state, syncMode: s.syncMode, framesStreamed: s.framesStreamed }; };
+    const before = snap(), startedAt = Date.now();
     try {
       const out = await captureScan(
         { engine: scanEngine, queue: attachmentQueue, getOffsetMs: () => recorderStore.getCaptureOffsetMs() },
@@ -115,6 +120,8 @@
       } else if (out.status === 'added' && out.recompressed) {
         showAttachNotice(tr.scanReduced);
       }
+      // Safety net, any scanner: in Stream mode, a long scan during which the live audio frames stopped is reported.
+      if (out.status !== 'cancelled' && streamGapSuspected(before, snap(), Date.now() - startedAt)) showAttachNotice(tr.scanAudioWarning);
     } finally {
       scanning = false;
     }
@@ -267,6 +274,7 @@
   {/if}
 
   <!-- ── Attachments: add sheet + full list ── -->
+  {#if !isNative()}<WebScanner />{/if}
   {#if attachSheetOpen}
     <AddAttachmentSheet
       scanAvailable={!!scanEngine}

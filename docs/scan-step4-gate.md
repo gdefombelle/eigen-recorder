@@ -5,6 +5,8 @@
 > feuille « Ajouter au record » de l'app iOS, et masquée dans la PWA. Le gate ci-dessous n'a **pas** été passé : les points
 > « non prouvé » plus bas sont des risques acceptés, pas des vérifications faites. Pour retirer l'entrée en cas de problème,
 > `getScanEngine()` (`src/lib/recorder/scan/scanEngine.ts`) doit retourner `null`.
+> Dans la PWA / le navigateur, l'entrée est aussi présente (scanner web de DocScan, voir « Scanner web » plus bas) dès que le navigateur a une caméra,
+> des workers et un canvas.
 > Le panneau de test « Scan spike » et sa sonde native ont été **retirés** du build ; ils restent récupérables dans
 > l'historique git (dernier commit qui les contient : `bb1ff5b`).
 
@@ -26,15 +28,32 @@
 - **transcript du comptage** continu autour des scans (mode Stream) ;
 - **un seul `session_hello`** côté serveur (pas de reconnexion du WebSocket) ;
 - **mode « Local seulement »** (micro natif) ;
-- **comportement PWA** : l'ouverture de la caméra suspend-elle la page / coupe-t-elle le micro ? (entrée masquée en attendant) ;
+- **scanner web (PWA)** : voir la section suivante. Jamais essayé sur un iPhone en PWA installée ;
 - sur appareil : recompression sous 25 Mo, mémoire sur 10 pages, nettoyage des temporaires, reprise depuis l'arrière-plan, envoi hors ligne puis reconnexion (ces deux derniers ne sont couverts que par des tests automatisés) ;
 - le faux échec du « mode avion » (flux déjà à l'arrêt avant le scan) est classé non applicable.
+
+## Scanner web (PWA / navigateur)
+Même composant que dans DocScan (scanner-app), recopié sans toucher à ce dépôt : viseur `getUserMedia` (vidéo seule, aucun son, pas de
+bruit d'obturateur), détection des bords en direct (Canny/Otsu en JS), capture, détection OpenCV.js sur l'image capturée (15 s au plus),
+redressement de perspective + amélioration dans un Web Worker, recadrage manuel des coins (« Correction »), vignettes avec suppression,
+confirmation avant d'abandonner des pages. Les pages deviennent un PDF (pdf-lib 1.17.1, comme DocScan) avec le même contrôle des
+25 Mo que sur iOS. Pocket ajoute : l'ordre des pages est celui des prises de vue, et un avertissement si, en Stream, les frames du son
+n'avancent plus pendant un scan d'au moins 4 s (`audioHealth.ts`, aussi actif avec le scanner iOS).
+
+**Vérifié** : tests unitaires du pipeline (détection, redressement, amélioration, 12 mutations détectées), de l'assemblage PDF, de la
+file de repli de qualité, du moteur et de l'avertissement audio ; exécution réelle dans Chrome desktop avec une caméra factice : 2 pages
+capturées, traitées par le worker, PDF de 2 pages valide (`%PDF-`, SHA-256, vignette), recadrage manuel et confirmation d'abandon affichés.
+
+**Non vérifié** : tout ce qui dépend d'un vrai iPhone en PWA (permission caméra, **micro du record pendant que la caméra tourne**,
+mémoire sur 10 pages, qualité de la détection sur de vraies feuilles), le téléchargement d'OpenCV.js depuis
+`https://docs.opencv.org/4.8.0/opencv.js` (environ 8 Mo, mis en cache par le navigateur ; hors ligne, la détection retombe sur celle du viseur
+puis sur le plein cadre), et la bibliothèque pdf-lib qui n'est plus publiée depuis 2021 (même choix que DocScan).
 
 ## Reste à faire plus tard
 1. **Gate complet** (section suivante) : le scan est déjà livré actif, donc c'est maintenant une vérification a posteriori.
 2. **`PrivacyInfo.xcprivacy` et « App Privacy » d'App Store Connect** à mettre à jour avant la prochaine soumission
    (propositions non appliquées : `docs/privacy-pieces-jointes.md`, sections 2, 3 et 6).
-3. **Test PWA** de la caméra et du micro (voir ci-dessus).
+3. **Test PWA sur iPhone** du scanner web : la caméra du viseur (`getUserMedia`, vidéo seule) coupe-t-elle le micro du record ? Le premier lancement télécharge OpenCV.js : combien de temps, et que se passe-t-il hors ligne ?
 
 ---
 

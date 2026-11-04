@@ -184,6 +184,7 @@ Statut : **proposition**, rien d'appliqué. Les conclusions des sections 2 à 5 
 | **Rien ne quitte le téléphone avant l'envoi de la pièce jointe** : le PDF suit ensuite exactement le chemin des autres pièces (copie locale dans IndexedDB, puis envoi au compte EigenVertex dès que la session existe côté serveur et que le réseau est là) | `attachmentQueue.ts` |
 | Champ ajouté à l'envoi : `capture_source=scan` (provenance, sans donnée personnelle) | `attachmentApi.ts` |
 | Aucune nouvelle permission : le scanner réutilise la permission caméra déjà déclarée (`NSCameraUsageDescription`) | `Info.plist` |
+| **Scanner web (PWA / navigateur)** : détection, redressement, amélioration et assemblage du PDF se font dans le navigateur (Web Workers). Seul du **code** est téléchargé : OpenCV.js depuis `docs.opencv.org` au premier scan (aucune image n'est envoyée à ce site). Caméra en vidéo seule, jamais le micro | `src/lib/recorder/scan/web/`, `static/workers/opencv-detect.js` |
 | Aucune lecture automatique (OCR / IA) côté Pocket : le fichier est seulement stocké, comme une pièce `session` | choix produit du 2026-11-04 |
 
 Conséquences pour les déclarations :
